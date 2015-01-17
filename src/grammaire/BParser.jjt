@@ -1,0 +1,2320 @@
+options {
+  MULTI=true;
+  LOOKAHEAD=1;
+  FORCE_LA_CHECK=true;
+  NODE_DEFAULT_VOID=true;
+  ERROR_REPORTING=true;
+}
+
+
+PARSER_BEGIN(BParser)
+
+/*****************************************************************************
+*
+* (C) 2003  B. TATIBOUET - Université de Franche-Comté
+*
+* This program is free software; you can redistribute it and/or
+* modify it under the terms of the GNU General Public License
+* as published by the Free Software Foundation; either version 2
+* of the License, or any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the Free Software
+* Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+******************************************************************************/
+
+package grammaire ;
+
+import java.io.* ;
+import java.util.* ;
+import noeud.AfterParserException;
+import noeud.BParserException;
+import noeud.Noeud;
+
+/** The B Parser
+
+    @version 4.1 - 24 April 2002
+    @author Bruno Tatibouët
+*/
+
+
+public class BParser {
+
+	static String defToken ;
+	static HashMap definitions = new java.util.HashMap() ;
+	static boolean[] clauseDejaDefini ;
+	static boolean variables, initialisation ;
+
+/******************************************************************************/
+/*      Traitement du produit parallele                                       */
+
+	static private String changeOperateurAvantParsing(String texte) {
+		StringBuffer texteModifie = new StringBuffer(texte) ;
+		ArrayList aChangerParallel = new ArrayList() ;
+		ArrayList aChangerSequence = new ArrayList() ;
+		Token t ;
+		int nbParen = 0 ; 
+		t = getNextToken() ; 
+		while (t.kind != EOF) {
+			switch (t.kind) {
+				case OpenParen :
+					nbParen += 1 ;
+					t = getNextToken() ;
+					while (t.kind != EOF && nbParen != 0) {
+						if (t.kind == OpenParen) {
+							nbParen += 1 ;
+						}
+						if (t.kind == CloseParen) {
+							nbParen -= 1 ;
+						}
+						if (t.kind == Parallel) {
+							aChangerParallel.add (new Boolean(true)) ;
+						}
+						if (t.kind == SemiColon) {
+							aChangerSequence.add (new Boolean(true)) ;
+						}
+						t = getNextToken() ; 
+					}
+					break ;
+				case Parallel :
+					aChangerParallel.add (new Boolean(false)) ;
+					t = getNextToken() ;
+					break ;
+				case SemiColon :
+					aChangerSequence.add (new Boolean(false)) ;
+					t = getNextToken() ;
+					break ;
+				default :
+					t = getNextToken() ;
+					break ;
+			}
+		}
+
+		int position = texte.indexOf("||", 0) ;
+		int i = 0 ;
+		while (i < aChangerParallel.size()) {
+			if (((Boolean)aChangerParallel.get(i)).booleanValue()) {
+				texteModifie.setCharAt(position,'/') ;
+				texteModifie.setCharAt(position+1,'/') ;
+			}
+			position = texte.indexOf("||", position+2) ;
+			i += 1 ;
+		}
+
+		position = texte.indexOf(";", 0) ;
+		i = 0 ;
+		while (i < aChangerSequence.size()) {
+			if (((Boolean)aChangerSequence.get(i)).booleanValue()) {
+				texteModifie.setCharAt(position,'°') ;
+			}
+			position = texte.indexOf(";", position+1) ;
+			i += 1 ;
+		}
+		return(texteModifie.toString()) ;
+	}
+
+
+/*	Fin du produit parallele                                              */
+/******************************************************************************/
+
+/******************************************************************************/
+/*      Parsing                                                               */
+
+	static private void reinitialisation() {
+		definitions.clear() ;
+		clauseDejaDefini = new boolean[17] ;
+		for (int i=0; i<17; i+=1) {clauseDejaDefini[i]=false;}
+		// S'il y a des variables alors une clause initialisation doit etre presente
+		variables = false; initialisation = false ;
+	}
+	
+
+    	/** The function analyse parse a B source component
+		@param fichier the B source component to parse
+		@return the tree who represent the B Component
+		@throws BParserException, FileNotFoundException, IOException 
+    	*/
+
+	static public Noeud analyse (File fichier) throws BParserException, AfterParserException, FileNotFoundException, IOException  {
+		Noeud bComponent = null ;
+		try {
+			ASTStart n = null ;
+			String bFile = null ;
+			String bSuffix = null ;
+		
+			StringTokenizer st = new StringTokenizer(fichier.getName(),".");
+			int nombreToken = st.countTokens () ;
+			if (nombreToken == 1) {
+				throw new ParseException ("Unknow type file (mch, ref, imp) : " + fichier.getName()) ; 
+			}
+			while (nombreToken > 1) {
+				bFile = st.nextToken() ;
+				nombreToken -=1 ;
+			}
+			bSuffix = st.nextToken() ;
+				if (!bSuffix.equals("mch") && !bSuffix.equals("ref") && !bSuffix.equals("imp")) {
+				throw new ParseException ("Unknow type file (mch, ref, imp) : " + fichier.getName()) ; 
+			}
+		
+			char[] tampon = new char [(int)fichier.length()] ;
+			FileReader lecteur = new FileReader(fichier) ; 	
+			lecteur.read (tampon, 0, (int)fichier.length()) ;
+			lecteur.close() ;
+    	
+			String texteAParser = new String(tampon) ;
+			
+			/* Just for output debug on console */
+			/* System.out.println (texteAParser) ; */
+			/* */
+			
+			if (!jj_initialized_once) {
+				new BParser(new StringReader(texteAParser)) ;
+			}
+			else {
+				ReInit(new StringReader(texteAParser)) ;
+			}
+			
+			String texteModifie = changeOperateurAvantParsing(texteAParser) ;
+			
+			/* Just for output debug on console */
+			/* System.out.println (texteModifie) ; */
+			/* */
+			
+			ReInit(new StringReader(texteModifie)) ;		
+			n = Start() ;	
+		
+			/* Just for output debug on console */
+			/* writeXMLNodeForDebug ((SimpleNode) n) ; */
+			/* */
+		
+			if (variables) { 
+				if (!initialisation) {
+					throw new ParseException ("VARIABLES clause but not INITIALISATION clause") ;
+				}
+			}
+		
+			bComponent = AfterParser.changeTree(n) ;	
+		
+			String nomBComponent = bComponent.getChild(0).getChild(0).getChild(0).getNodeValue() ;
+			String typeBComponent = bComponent.getNodeName() ;
+		
+			if (!nomBComponent.equals(bFile)) {
+				throw new ParseException ("Name of B component (" + nomBComponent + ") and file name (" + bFile + ") are differents") ; 
+			}
+		
+			if (typeBComponent.equals("Machine") && !bSuffix.equals("mch")) {
+				throw new ParseException ("Type of B component (MACHINE) and type file (" + bSuffix + ") not corresponding") ; 
+			}
+
+			if (typeBComponent.equals("Refinement") && !bSuffix.equals("ref")) {
+				throw new ParseException ("Type of B component (REFINEMENT) and type file (" + bSuffix + ") not corresponding") ; 
+			}
+		
+			if (typeBComponent.equals("Implementation") && !bSuffix.equals("imp")) {
+				throw new ParseException ("Type of B component (IMPLEMENTATION) and type file (" + bSuffix + ") not corresponding") ; 
+			}
+		} catch (ParseException pex) {
+			throw new BParserException (fichier.getAbsolutePath(), pex.getMessage()) ;
+		} catch (AfterParserException pex) {
+			throw new BParserException (fichier.getAbsolutePath(), pex.getMessage()) ;
+		}
+		
+		return (bComponent) ;
+	}
+
+
+	private static void dumpRecursif (String indent, Noeud n, FileWriter fw) throws IOException {
+		String nodeValue = n.getNodeValue() ;
+		String nodeName = n.getNodeName() ;
+		if (nodeValue == null) { 
+    			String aDumper = new String(indent + '<' + nodeName + '>' + '\n') ;
+			fw.write(aDumper, 0, aDumper.length()) ;
+    		}
+		else if (nodeName.equals("IdentifierComposed")) {
+		    	String aDumper = new String(indent + '<' + nodeName + '>' + nodeValue + '\n') ;
+			fw.write(aDumper, 0, aDumper.length()) ;
+		}
+    		else { String aDumper = new String(indent + '<' + nodeName + '>' + 
+			nodeValue + '<' + '/' + nodeName + '>' + '\n') ; 
+			fw.write(aDumper, 0, aDumper.length()) ;
+		}
+    		int nombreDeFils = n.getNumChildren() ;
+    		if (nombreDeFils != 0) {
+      			for (int i = 0; i < nombreDeFils; ++i) {
+				Noeud nt = n.getChild(i);
+				if (nt != null) {
+	  				dumpRecursif(indent + '\t', nt, fw) ;
+				}
+      			}
+    		}
+		if (nodeValue == null || nodeName.equals("IdentifierComposed")) {
+    			String aDumper = new String(indent + '<' + '/' + nodeName + '>' + '\n') ;
+			fw.write(aDumper, 0, aDumper.length()) ;
+    		}
+  	}
+	
+    	/** The function writeXMLAfterParsing write the tree in a directory who represent the B Component in the source 
+		@param bComponent the tree who represent the B Component
+		@param outputDirectory the directory where produce the output
+		@throws IOException, FileNotFoundException, AfterParserException
+    	*/
+
+	public static void writeXMLAfterParsing (Noeud bComponent, String outputDirectory) 
+		throws AfterParserException, FileNotFoundException, IOException {
+
+		File xmlDir = new File(outputDirectory) ;
+
+		if (!xmlDir.exists()) {
+			xmlDir.mkdir() ;
+		}
+		else	if (!xmlDir.isDirectory()) {
+			throw new AfterParserException(new String(xmlDir.getName() + ": Not a directory")) ;
+		} 
+		
+/*		outputDirectory = new String (outputDirectory + File.separator + "ParsingOutput") ;
+
+		xmlDir = new File(outputDirectory) ;
+		
+		if (!xmlDir.exists()) {
+			xmlDir.mkdir() ;
+		}
+		else	if (!xmlDir.isDirectory()) {
+			throw new AfterParserException(new String(xmlDir.getName() + ": Not a directory")) ;
+		} 
+*/		
+		String nomBComponent = bComponent.getChild(0).getChild(0).getChild(0).getNodeValue() ;
+		String aDumper = new String("<?xml version=\"1.0\" standalone='yes' ?>" + '\n') ;
+
+		FileWriter ecrivain = new FileWriter(new String(outputDirectory + File.separator + nomBComponent + ".xml")) ;
+		ecrivain.write(aDumper, 0, aDumper.length()) ;
+	 	dumpRecursif (" ", bComponent, ecrivain) ;
+         	ecrivain.close() ;
+      		
+	}
+	
+    	/** The function writeXMLFileAfterParsing write the tree who represent the B Component in the source 
+		@param bComponent the tree who represent the B Component
+		@param nameFile the file where produce the output
+		@throws IOException, FileNotFoundException, AfterParserException
+    	*/
+	
+	public static void writeXMLFileAfterParsing (Noeud bComponent, String nameFile) 
+		throws AfterParserException, FileNotFoundException, IOException {
+
+        	FileWriter ecrivain = new FileWriter(nameFile) ;
+		
+		String aDumper = new String("<?xml version=\"1.0\" standalone='yes' ?>" + '\n') ;
+		ecrivain.write(aDumper, 0, aDumper.length()) ;
+ 		dumpRecursif (" ", bComponent, ecrivain) ;
+       		ecrivain.close() ;
+      		
+	}
+	
+
+	private static void dumpRecursifSimpleNode (String indent, SimpleNode n) throws IOException {
+		String nodeValue = n.getNodeName() ;
+		String nodeName = n.toString() ;
+		if (nodeValue == null) { 
+    			String aDumper = new String(indent + '<' + nodeName + '>' + '\n') ;
+			System.out.println (aDumper) ;
+    		}
+		else if (nodeName.equals("IdentifierComposed")) {
+		    	String aDumper = new String(indent + '<' + nodeName + '>' + nodeValue + '\n') ;
+			System.out.println (aDumper) ;
+		}
+    		else { String aDumper = new String(indent + '<' + nodeName + '>' + 
+			nodeValue + '<' + '/' + nodeName + '>' + '\n') ; 
+			System.out.println (aDumper) ;
+		}
+    		int nombreDeFils = n.jjtGetNumChildren() ;
+    		if (nombreDeFils != 0) {
+      			for (int i = 0; i < nombreDeFils; ++i) {
+				SimpleNode nt = (SimpleNode)n.jjtGetChild(i);
+				if (nt != null) {
+	  				dumpRecursifSimpleNode(indent + '\t', nt) ;
+				}
+      			}
+    		}
+		if (nodeValue == null || nodeName.equals("IdentifierComposed")) {
+    			String aDumper = new String(indent + '<' + '/' + nodeName + '>' + '\n') ;
+			System.out.println (aDumper) ;
+    		}
+  	}
+
+	private static void writeXMLNodeForDebug (SimpleNode n) 
+		throws AfterParserException, FileNotFoundException, IOException {
+
+		String aDumper = new String("<?xml version=\"1.0\" standalone='yes' ?>" + '\n') ;
+		System.out.println (aDumper) ;
+ 		dumpRecursifSimpleNode (" ", n) ;
+	}
+	
+/*	Fin du parsing                                                        */
+/******************************************************************************/
+
+}
+
+PARSER_END(BParser)
+
+
+SKIP : {
+  < [" ", "\t", "\n", "\r", "\u00a0"] >
+}
+
+SKIP : {
+	"/*" : WithinComment
+}
+
+<WithinComment> SKIP : {
+	"*/" : DEFAULT
+}
+
+<WithinComment> MORE:
+{
+  < ~[] >
+}
+
+TOKEN : {
+
+  	<Machine: "MACHINE">
+|  	<End : "END">
+|  	<Sets : "SETS">
+|  	<Invariant : "INVARIANT">
+|  	<Variables : "VARIABLES">
+|  	<Operations : "OPERATIONS">
+|	<Constraints : "CONSTRAINTS">
+|	<Sees : "SEES">
+|	<Constants : "CONSTANTS">
+|	<Properties : "PROPERTIES">
+|	<Includes : "INCLUDES">
+|	<ConcreteVariables : "CONCRETE_VARIABLES">
+|	<AbstractVariables : "ABSTRACT_VARIABLES">
+|	<ConcreteConstants : "CONCRETE_CONSTANTS">
+|	<AbstractConstants : "ABSTRACT_CONSTANTS">
+|	<Assertions : "ASSERTIONS">
+|	<Initialisation : "INITIALISATION">
+|	<Refinement : "REFINEMENT">
+|	<Refines : "REFINES">
+|	<Implementation : "IMPLEMENTATION">
+|	<Imports : "IMPORTS">
+|	<Definitions : "DEFINITIONS">
+|	<Values : "VALUES">
+|	<Begin : "BEGIN">
+|	<Pre : "PRE">
+|	<If : "IF">
+|	<Then : "THEN">
+|	<Elsif : "ELSIF">
+|	<Else : "ELSE">
+|	<Assert : "ASSERT">
+|	<Any : "ANY">
+|	<Where : "WHERE">
+|	<Let : "LET">
+|	<Be : "BE">
+|	<InLetVar : "IN">
+|	<Choice : "CHOICE">
+|	<OrC : "OR">
+|	<Select : "SELECT">
+|	<When : "WHEN">
+|	<Case : "CASE">
+|	<Of : "OF">
+|	<Either : "EITHER">
+|	<Var : "VAR">
+|	<While : "WHILE">
+|	<Do : "DO">
+|	<Variant : "VARIANT">
+
+|	<EmptySet : "{" (" ")* "}">
+|	<EmptySequence : "[" (" ")* "]">
+|	<EmptySequenceOld : "<>">
+
+
+|	<Equivalence : "<=>">
+|	<Subset : "<:">
+|	<NotSubset : "/<:">
+|	<Implication : "=>">
+|	<StrictSubset : "<<:">
+|	<NotStrictSubset : "/<<:">
+|	<NotSetMemberShip : "/:">
+|	<NotEqual : "/=">
+
+|	<LessThanOrEqual : "<=">
+|	<GreatherThanOrEqual : ">=">
+
+
+|	<Relation : "<->">
+|	<PartialSurjection : "+->>">
+|	<PartialFunction: "+->">
+|	<TotalSurjection : "-->>">
+|	<TotalFunction : "-->">
+|	<PartialBijection : ">+>>">
+|	<PartialInjection : ">+>">
+|	<TotalBijection : ">->>">
+|	<TotalInjection : ">->">
+
+|	<OperationReturn : "<--">
+|	<DevientEgal : ":=">
+
+|	<OpenCurly : "[">
+|	<CloseCurly : "]">
+
+|	<Maplet : "|->">
+
+|	<DomainSubstraction : "<<|">
+|	<DomainRestriction : "<|">
+|	<RangeSubstraction : "|>>">
+|	<RangeRestriction : "|>">
+|	<Override : "<+">
+|	<DirectProduct : "><">
+|	<PrependSequence : "->">
+|	<AppendSequence : "<-">
+|	<PrefixSequence : "/|\\">
+|	<SuffixSequence : "\\|/">
+
+|	<SetIn : "::">
+|	<EqualEqual : "==">
+|	<NatRange : "..">
+|	<Power : "**">
+
+|	<Union : "\\/">
+|	<Intersection : "/\\">
+
+|	<Lambda : "%">
+|	<SuchAs : "|">
+|	<Forall : "!">
+|	<Exists : "#">
+|	<Tilde : "~">
+|	<OpenBraces : "{">
+|	<CloseBraces : "}">
+|  	<Point : ".">
+|  	<OpenParen : "(">
+|  	<CloseParen : ")">
+|	<Comma : ",">
+|	<Or : "or">
+|	<And  : "&">
+|	<Not : "not">
+|	<Skip : "skip">
+|	<Minus : "-">
+|	<Plus : "+">
+|	<Product : "*">
+|	<Division : "/">
+|	<Modulo : "mod">
+|	<Equal : "=">
+|	<ConcatSequence : "^">
+|	<LessThan : "<">
+|	<GreatherThan : ">">
+
+|	<In : ":">
+|	<DollarZero : "$0">
+
+| 	<Composition : "°">
+|	<ParallelProduct : "//">
+|	<SetMinus : "\\">
+|	<CartesianProduct : "€">
+
+|	<Parallel : "||">
+|	<SemiColon : ";">
+
+|	<Prj1 : "prj1">
+|	<Prj2 : "prj2">
+|	<POW : "POW">
+|	<FIN : "FIN">
+|	<POW1 : "POW1">
+|	<FIN1 : "FIN1">
+|	<InterGen : "inter">
+|	<UnionGen : "union">
+|	<UnionQuant : "UNION">
+|	<InterQuant : "INTER">
+|	<Id : "id">
+|	<Dom : "dom">
+|	<Ran : "ran">
+|	<Iterate : "iterate">
+|	<Closure : "closure">
+|	<Closure1 : "closure1">
+|	<Card : "card">
+|	<Max : "max">
+|	<Min : "min">
+|       <Succ : "succ">
+|	<Pred : "pred">
+|	<Sigma : "SIGMA">
+|	<Pi : "PI">
+|	<Seq : "seq">
+|	<Iseq : "iseq">
+|	<Seq1 : "seq1">
+|	<Iseq1 : "iseq1">
+|	<Perm : "perm">
+|	<Conc : "conc">
+|	<Front : "front">
+|	<Tail : "tail">
+|	<First : "first">
+|	<Last : "last">
+|	<Size : "size">
+|	<Rev : "rev">
+|	<Fnc : "fnc">
+|	<Rel : "rel">
+|	<Bool : "bool">
+
+|	<Nat : "NAT">
+|	<Nat1 : "NAT1">
+|	<Natural : "NATURAL">
+|	<Natural1 : "NATURAL1">
+|	<Int : "INT">
+|	<Integer : "INTEGER">
+|	<True : "TRUE">
+|	<False : "FALSE">
+|	<Boolean : "BOOL">
+|	<StringSet : "STRING">
+|	<MaxInt : "MAXINT">
+|	<MinInt : "MININT">
+
+}
+
+
+
+TOKEN : {
+	<IDENTIFIER : ["a"-"z","A"-"Z","_"] (["a"-"z","A"-"Z","_","0"-"9"])*>
+}
+
+TOKEN : {
+	<String:
+      		"\""
+      		(         (~["\"","\\","\n","\r"])
+        		| ("\\"
+            			(   ["n","t","b","r","f","\\","'","\""]
+            			  | ["0"-"7"] ( ["0"-"7"] )?
+            			  | ["0"-"3"] ["0"-"7"] ["0"-"7"]
+           			)
+          		  )
+      		)*
+          	"\""
+  	>
+}
+
+TOKEN : {
+	<Number : (["0"-"9"])+ >
+}
+
+ASTStart Start() #Start : {} {
+  (
+    Composant() | LOOKAHEAD(Predicate()) Predicate() | Expression()
+  )
+  { return jjtThis; }
+}
+
+void Composant() : {} {
+	( 
+	  {reinitialisation() ; }
+	   (Machine ()
+	    | Refinement () 
+	    | Implementation ()
+	   )
+	) 
+}
+
+
+
+void Machine() #Machine : {} {
+	<Machine> EnTeteComposant() ListeMachineClauses() <End>
+}
+
+void Refinement() #Refinement : {} {
+	<Refinement> EnTeteComposant() Refines() ListeRefinementClauses() <End>
+}
+
+void Implementation() #Implementation : {} {
+	<Implementation> EnTeteComposant() Refines() ListeImplementationClauses() <End>
+}
+
+void EnTeteComposant() #Header : {} {
+	ComposantName() [ComposantParameters()]
+}
+
+void ComposantName() #Name : {} {
+	Identifier() 
+}
+
+void ComposantParameters() #Parameters : {} {
+	<OpenParen> ListIdent() <CloseParen>
+}
+
+void Refines() #Refine : {} {
+	<Refines> Identifier() 
+}
+
+void ListeMachineClauses() : {} {
+	(MachineClause())*
+}
+
+void ListeRefinementClauses() : {} {
+	(RefinementClause())*
+}
+
+void ListeImplementationClauses() : {} {
+	(ImplementationClause())*
+}
+
+void MachineClause() : {} {
+	   DefinitionsClauseMachine() 
+	     { if (clauseDejaDefini[0]) 
+		throw new ParseException("Clause DEFINITIONS already defined\n") ; 
+		else clauseDejaDefini[0] = true ; }
+	|  ConstraintsClause()
+	     { if (clauseDejaDefini[1]) 
+		throw new ParseException("Clause CONSTRAINTS already defined\n") ; 
+		else clauseDejaDefini[1] = true ; }
+	|  SeesClause()
+	     { if (clauseDejaDefini[2]) 
+		throw new ParseException("Clause SEES already defined\n") ; 
+		else clauseDejaDefini[2] = true ; }
+	|  IncludesClause()
+	     { if (clauseDejaDefini[3]) 
+		throw new ParseException("Clause INCLUDES already defined\n") ; 
+		else clauseDejaDefini[3] = true ; }
+	|  SetsClause()
+	     { if (clauseDejaDefini[4]) 
+		throw new ParseException("Clause SETS already defined\n") ; 
+		else clauseDejaDefini[4] = true ; }
+	|  ConstantsConcreteClause()
+	     { if (clauseDejaDefini[5]) 
+		throw new ParseException("Clause CONCRETE CONSTANTS already defined\n") ; 
+		else clauseDejaDefini[5] = true ; }
+	|  ConstantsAbstractClause()
+	     { if (clauseDejaDefini[6]) 
+		throw new ParseException("Clause ABSTRACT CONSTANTS already defined\n") ; 
+		else clauseDejaDefini[6] = true ; }
+	|  PropertiesClause()
+	     { if (clauseDejaDefini[7]) 
+		throw new ParseException("Clause PROPERTIES already defined\n") ; 
+		else clauseDejaDefini[7] = true ; }
+	|  VariablesConcreteClause()
+	     { if (clauseDejaDefini[8]) 
+		throw new ParseException("Clause CONCRETE VARIABLES already defined\n") ; 
+		else clauseDejaDefini[8] = true ;
+	       variables = true ;
+	     }
+	|  VariablesAbstractClause()
+	     { if (clauseDejaDefini[9]) 
+		throw new ParseException("Clause ABSTRACT VARIABLES already defined\n") ; 
+		else clauseDejaDefini[9] = true ; 
+	       variables = true ;
+	     }
+	|  InvariantClause()
+	     { if (clauseDejaDefini[10]) 
+		throw new ParseException("Clause INVARIANT already defined\n") ; 
+		else clauseDejaDefini[10] = true ; }
+	|  AssertionsClause()
+	     { if (clauseDejaDefini[11]) 
+		throw new ParseException("Clause ASSERTIONS already defined\n") ; 
+		else clauseDejaDefini[11] = true ; }
+	|  InitialisationClauseMachine()
+	     { if (clauseDejaDefini[12]) 
+		throw new ParseException("Clause INITIALISATION already defined\n") ; 
+		else clauseDejaDefini[12] = true ;
+               initialisation = true ;		
+	     }
+	|  OperationsClauseMachine()
+	     { if (clauseDejaDefini[13]) 
+		throw new ParseException("Clause OPERATIONS already defined\n") ; 
+		else clauseDejaDefini[13] = true ; }
+}
+
+void RefinementClause() : {} {
+	   DefinitionsClauseRefinement() 
+	     { if (clauseDejaDefini[0]) 
+		throw new ParseException("Clause DEFINITIONS already defined\n") ; 
+		else clauseDejaDefini[0] = true ; }
+	|  SeesClause()
+	     { if (clauseDejaDefini[1]) 
+		throw new ParseException("Clause SEES already defined\n") ; 
+		else clauseDejaDefini[1] = true ; }
+	|  IncludesClause()
+	     { if (clauseDejaDefini[2]) 
+		throw new ParseException("Clause INCLUDES already defined\n") ; 
+		else clauseDejaDefini[2] = true ; }
+	|  SetsClause()
+	     { if (clauseDejaDefini[3]) 
+		throw new ParseException("Clause SETS already defined\n") ; 
+		else clauseDejaDefini[3] = true ; }
+	|  ConstantsConcreteClause()
+	     { if (clauseDejaDefini[4]) 
+		throw new ParseException("Clause CONCRETE CONSTANTS already defined\n") ; 
+		else clauseDejaDefini[4] = true ; }
+	|  ConstantsAbstractClause()
+	     { if (clauseDejaDefini[5]) 
+		throw new ParseException("Clause ABSTRACT CONSTANTS already defined\n") ; 
+		else clauseDejaDefini[5] = true ; }
+	|  PropertiesClause()
+	     { if (clauseDejaDefini[6]) 
+		throw new ParseException("Clause PROPERTIES already defined\n") ; 
+		else clauseDejaDefini[6] = true ; }
+	|  VariablesConcreteClause()
+	     { if (clauseDejaDefini[7]) 
+		throw new ParseException("Clause CONCRETE VARIABLES already defined\n") ; 
+		else clauseDejaDefini[7] = true ; 
+	       variables = true ;
+	     }
+	|  VariablesAbstractClause()
+	     { if (clauseDejaDefini[8]) 
+		throw new ParseException("Clause ABSTRACT VARAIBLE already defined\n") ; 
+		else clauseDejaDefini[8] = true ; 
+	       variables = true ;
+	     }
+	|  InvariantClause()
+	     { if (clauseDejaDefini[9]) 
+		throw new ParseException("Clause INVARIANT already defined\n") ; 
+		else clauseDejaDefini[9] = true ; }
+	|  AssertionsClause()
+	     { if (clauseDejaDefini[10]) 
+		throw new ParseException("Clause ASSERTIONS already defined\n") ; 
+		else clauseDejaDefini[10] = true ; }
+	|  InitialisationClauseRefinement()
+	     { if (clauseDejaDefini[11]) 
+		throw new ParseException("Clause INITIALISATION already defined\n") ; 
+		else clauseDejaDefini[11] = true ;
+               initialisation = true ;		
+	     }
+	|  OperationsClauseRefinement()
+	     { if (clauseDejaDefini[12]) 
+		throw new ParseException("Clause OPERATIONS already defined\n") ; 
+		else clauseDejaDefini[12] = true ; }
+}
+
+void ImplementationClause() : {} {
+	   DefinitionsClauseImplementation() 
+	     { if (clauseDejaDefini[0]) 
+		throw new ParseException("Clause DEFINITIONS already defined\n") ; 
+		else clauseDejaDefini[0] = true ; }
+	|  SeesClause()
+	     { if (clauseDejaDefini[1]) 
+		throw new ParseException("Clause SEES already defined\n") ; 
+		else clauseDejaDefini[1] = true ; }
+	|  ImportsClauseImplementation()
+	     { if (clauseDejaDefini[2]) 
+		throw new ParseException("Clause IMPORTS already defined\n") ; 
+		else clauseDejaDefini[2] = true ; }
+	|  SetsClause()
+	     { if (clauseDejaDefini[3]) 
+		throw new ParseException("Clause SETS already defined\n") ; 
+		else clauseDejaDefini[3] = true ; }
+	|  ConstantsConcreteClause()
+	     { if (clauseDejaDefini[4]) 
+		throw new ParseException("Clause CONCRETE CONSTANTS already defined\n") ; 
+		else clauseDejaDefini[4] = true ; }
+	|  ValuesClauseImplementation()
+	     { if (clauseDejaDefini[5]) 
+		throw new ParseException("Clause VALUES already defined\n") ; 
+		else clauseDejaDefini[5] = true ; }
+	|  PropertiesClause()
+	     { if (clauseDejaDefini[6]) 
+		throw new ParseException("Clause PROPERTIES already defined\n") ; 
+		else clauseDejaDefini[6] = true ; }
+	|  VariablesConcreteClause()
+	     { if (clauseDejaDefini[7]) 
+		throw new ParseException("Clause CONCRETE VARIABLES already defined\n") ; 
+		else clauseDejaDefini[7] = true ; 
+	       variables = true ;
+	     }
+	|  InvariantClause()
+	     { if (clauseDejaDefini[8]) 
+		throw new ParseException("Clause INVARIANT already defined\n") ; 
+		else clauseDejaDefini[8] = true ; }
+	|  AssertionsClause()
+	     { if (clauseDejaDefini[9]) 
+		throw new ParseException("Clause ASSERTIONS already defined\n") ; 
+		else clauseDejaDefini[9] = true ; }
+	|  InitialisationClauseImplementation()
+	     { if (clauseDejaDefini[10]) 
+		throw new ParseException("Clause INITIALISATION already defined\n") ; 
+		else clauseDejaDefini[10] = true ; 
+	       initialisation = true ;
+	     }
+	|  OperationsClauseImplementation()
+	     { if (clauseDejaDefini[11]) 
+		throw new ParseException("Clause OPERATIONS already defined\n") ; 
+		else clauseDejaDefini[11] = true ; }
+}
+
+void DefinitionsClauseMachine() #Definitions : {} {
+	<Definitions> DefinitionMachine() (LOOKAHEAD(<SemiColon> DefinitionMachine()) <SemiColon> DefinitionMachine())* [<SemiColon>]
+}
+
+void DefinitionsClauseRefinement() #Definitions : {} {
+	<Definitions> DefinitionRefinement() (LOOKAHEAD(<SemiColon> DefinitionRefinement()) <SemiColon> DefinitionRefinement())* [<SemiColon>]
+}
+
+void DefinitionsClauseImplementation() #Definitions : {} {
+	<Definitions> DefinitionImplementation() (LOOKAHEAD(<SemiColon> DefinitionImplementation()) <SemiColon> DefinitionImplementation())* [<SemiColon>]
+}
+
+void DefinitionMachine() #Definition : {} {
+	EnTeteDefinition() <EqualEqual>  CorpsDefinitionMachine()
+}
+
+void DefinitionRefinement() #Definition : {} {
+	EnTeteDefinition() <EqualEqual>  CorpsDefinitionRefinement()
+}
+
+void DefinitionImplementation() #Definition : {} {
+	EnTeteDefinition() <EqualEqual>  CorpsDefinitionImplementation()
+}
+
+void EnTeteDefinition() #Header : {} {
+	DefinitionName() [ParametresDefinition()]
+}
+
+void DefinitionName() #Name : {} {
+	Identifier() 
+	{ defToken = getToken(0).image ; } 
+}
+
+void ParametresDefinition() #Parameters : {} {
+	<OpenParen> ListIdent() <CloseParen>
+}
+
+void CorpsDefinitionMachine() : {} {
+	     LOOKAHEAD(Predicate()) Predicate() {definitions.put(defToken,"Predicate") ; }
+	   | LOOKAHEAD(SubstitutionMachineDefinition()) SubstitutionMachineDefinition() {definitions.put(defToken,"Substitution") ; }	
+	   | LOOKAHEAD(Expression() <Comma>) ListExpression() {definitions.put(defToken,"ListExpression") ; }
+ 	   | LOOKAHEAD(Expression()) Expression() {definitions.put(defToken,"Expression") ; } 
+	   | SubstitutionPreconditionMachine() {definitions.put(defToken,"Substitution") ; }
+/*	   | SubstitutionMachine1() {definitions.put(defToken,"Substitution") ; }	*/
+}
+
+void SubstitutionMachineDefinition() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginMachine()
+	| SubstitutionSkipMachine()    
+	| SubstitutionAssertionMachine()
+	| SubstitutionChoiceMachine()
+	| SubstitutionIfMachine()
+	| SubstitutionSelectMachine()
+	| SubstitutionCaseMachine()              
+	| SubstitutionAnyMachine()
+	| SubstitutionLetMachine()  
+	| LOOKAHEAD(SubstitutionDevienEgalFonction()) SubstitutionDevienEgalFonction()     
+	| LOOKAHEAD(SubstitutionDevientElementDe()) SubstitutionDevientElementDe()
+	| LOOKAHEAD(SubstitutionDevientTelQue()) SubstitutionDevientTelQue()
+	| LOOKAHEAD(SubstitutionDevientEgalVariables()) SubstitutionDevientEgalVariables()
+	| SubstitutionCallOperationDefinition()
+}
+
+void SubstitutionCallOperationDefinition() #SubstitutionCallOperation : {} {
+	  LOOKAHEAD (Resultats()) Resultats() OperationName() [ParametresEffectifs()]
+	| OperationName() ParametresEffectifs()
+} 
+   
+void CorpsDefinitionRefinement() : {} {
+	     LOOKAHEAD(Predicate()) Predicate() {definitions.put(defToken,"Predicate") ; }
+	   | LOOKAHEAD(SubstitutionRefinementDefinition()) SubstitutionRefinementDefinition() {definitions.put(defToken,"Substitution") ; }
+	   | LOOKAHEAD(Expression() <Comma>) ListExpression() {definitions.put(defToken,"ListExpression") ; }
+ 	   | LOOKAHEAD(Expression()) Expression() {definitions.put(defToken,"Expression") ; } 
+	   | SubstitutionPreconditionMachine() {definitions.put(defToken,"Substitution") ; }
+/*	   | SubstitutionRefinement1() {definitions.put(defToken,"Substitution") ; } */
+}
+
+void SubstitutionRefinementDefinition() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginRefinement()
+	| SubstitutionSkipRefinement()    
+	| SubstitutionAssertionRefinement()
+	| SubstitutionChoiceRefinement()
+	| SubstitutionIfRefinement()
+	| SubstitutionSelectRefinement()
+	| SubstitutionCaseRefinement()              
+	| SubstitutionAnyRefinement()
+	| SubstitutionLetRefinement()  
+	| SubstitutionVarRefinement()  
+	| LOOKAHEAD(SubstitutionDevienEgalFonction()) SubstitutionDevienEgalFonction()     
+	| LOOKAHEAD(SubstitutionDevientElementDe()) SubstitutionDevientElementDe()
+	| LOOKAHEAD(SubstitutionDevientTelQue()) SubstitutionDevientTelQue()
+	| LOOKAHEAD(SubstitutionDevientEgalVariables()) SubstitutionDevientEgalVariables()
+	| SubstitutionCallOperationDefinition()
+}
+
+void CorpsDefinitionImplementation() : {} {
+	     LOOKAHEAD(Predicate()) Predicate() {definitions.put(defToken,"Predicate") ; }
+	   | LOOKAHEAD(SubstitutionImplementationDefinition()) SubstitutionImplementationDefinition() {definitions.put(defToken,"Substitution") ; }
+/*	   | LOOKAHEAD(Terme()) Terme() {definitions.put(defToken,"Expression") ; }	   */
+	   | LOOKAHEAD(Expression()) Expression() {definitions.put(defToken,"Expression") ; } 
+/* 	   | LOOKAHEAD(ValueTerme()) ValueTerme() {definitions.put(defToken,"Expression") ; } */
+/*	   | SubstitutionImplementation1() {definitions.put(defToken,"Substitution") ; } */
+}
+
+void SubstitutionImplementationDefinition() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginImplementation()
+	| SubstitutionSkipImplementation()    
+	| SubstitutionAssertionImplementation()
+	| SubstitutionIfImplementation()
+	| SubstitutionCaseImplementation()              
+	| SubstitutionWhileImplementation()  
+	| SubstitutionVarImplementation()
+	| LOOKAHEAD(SubstitutionDevientEgalVariablesImplementation()) SubstitutionDevientEgalVariablesImplementation()
+	| SubstitutionCallOperationImplementationDefinition()
+}
+
+void SubstitutionCallOperationImplementationDefinition() #SubstitutionCallOperation : {} {
+	  LOOKAHEAD (Resultats()) Resultats() OperationName() [ParametresEffectifsImplementation()]
+	| OperationName() ParametresEffectifsImplementation()
+} 
+	
+void ConstraintsClause() #Constraints : {} {
+	<Constraints> Predicate()
+}
+
+void SeesClause() #Sees : {} {
+	<Sees> IdentifierComposed() (<Comma> IdentifierComposed())*
+}  
+
+void ImportsClauseImplementation() #Imports : {} {
+	<Imports> ImportsDeclaration() (<Comma> ImportsDeclaration())*
+}
+  
+void ImportsDeclaration() #Declaration : {} {
+	IdentifierComposed() [<OpenParen> InstanciationImplementation() (<Comma> InstanciationImplementation())* <CloseParen>]	
+}
+
+void IncludesClause() #Includes : {} {
+	<Includes> IncludesDeclaration() (<Comma> IncludesDeclaration())*
+}
+
+void IncludesDeclaration() #Declaration : {} {
+	IdentifierComposed() [<OpenParen> Instanciation() (<Comma> Instanciation())* <CloseParen>]	
+}
+
+void Instanciation() : {} {
+	   IntegerSet ()
+	|  BooleanSet ()
+	|  LOOKAHEAD(Intervalle()) Intervalle()
+	|  Terme()
+}
+
+void InstanciationImplementation() : {} {
+	   IntegerSetImplementation()
+	|  BooleanSet()
+	|  LOOKAHEAD(Intervalle()) Intervalle()
+	|  Terme()
+}
+
+void SetsClause() #Sets : {} {
+   /* j'ai ajouté ()* autour de  SetDeclaration pour accepter plusieurs declarations de Sets */
+	<Sets> (SetDeclaration())* (<SemiColon> SetDeclaration())*
+}
+
+void SetDeclaration() #Declaration : {} {
+  	//Identifier() [<Equal> <OpenBraces> PereListIdent()  <CloseBraces>]
+	Identifier() [<Equal> <OpenBraces> EntierLitteral()(<Comma> EntierLitteral())*  <CloseBraces>]
+	/*Identifier() [<Equal> <OpenBraces> PereListIdent() | EntierLitteral()(<Comma> EntierLitteral())*  <CloseBraces>]*/	
+}
+
+void ConstantsConcreteClause() #ConcreteConstants : {} {
+	(<ConcreteConstants> | <Constants> ) PereListIdent()
+}
+
+void ConstantsAbstractClause() #AbstractConstants : {} {
+	(<AbstractConstants>) PereListIdent()
+}
+
+void PropertiesClause() #Properties : {} {
+	<Properties> Predicate()
+}
+
+void ValuesClauseImplementation() #Values : {} {
+	<Values> Valuation() (<SemiColon> Valuation())*
+}
+
+void Valuation() #Value : {} {
+	Identifier() <Equal> ValueTerme()
+}
+
+void VariablesConcreteClause() #ConcreteVariables : {} {
+	(<ConcreteVariables>) IdentifierComposed() (<Comma> IdentifierComposed())*
+}
+
+void VariablesAbstractClause() #AbstractVariables : {} {
+	(<AbstractVariables> | <Variables>) PereListIdent()
+}
+
+void InvariantClause() #Invariant : {} {
+	<Invariant> Predicate()
+}
+
+void AssertionsClause() #Assertions : {} {
+	<Assertions> Predicate() (<SemiColon> Predicate())*
+}
+
+void InitialisationClauseMachine() #Initialisation : {} {
+	<Initialisation> SubstitutionMachine0()
+}
+
+void InitialisationClauseRefinement() #Initialisation : {} {
+	<Initialisation> SubstitutionRefinement0()
+}
+
+void InitialisationClauseImplementation() #Initialisation : {} {
+	<Initialisation> SubstitutionImplementation0()
+}
+
+void OperationsClauseMachine() #Operations : {} {
+	<Operations> OperationMachine() (<SemiColon> OperationMachine())*
+}
+
+void OperationMachine() #Operation : {} {
+	 EnTeteOperation() <Equal> CorpsMachine()
+}
+
+void OperationsClauseRefinement() #Operations : {} {
+	<Operations> OperationRefinement() (<SemiColon> OperationRefinement())*
+}
+
+void OperationRefinement() #Operation : {} {
+	 EnTeteOperation() <Equal> CorpsRefinement()
+}
+
+void OperationsClauseImplementation() #Operations : {} {
+	<Operations> OperationImplementation() (<SemiColon> OperationImplementation())*
+}
+
+void OperationImplementation() #Operation : {} {
+	 EnTeteOperation() <Equal> CorpsImplementation()
+}
+
+void EnTeteOperation() #Header : {} {
+	[LOOKAHEAD (Resultats()) Resultats()] OperationName() [Parametres()]
+}
+
+void Resultats() #Results : {} {
+	PereListIdent() <OperationReturn>
+}
+
+void OperationName() #Name : {} {
+	IdentifierComposed()
+}
+
+void Parametres() #Parameters : {} {
+	<OpenParen> PereListIdent() <CloseParen>
+}
+
+void CorpsMachine() : {} {
+	SubstitutionPreconditionMachine()
+	| SubstitutionMachine1()
+}
+
+void CorpsRefinement() : {} {
+	SubstitutionPreconditionRefinement()
+	| SubstitutionRefinement1()
+}
+
+void CorpsImplementation() : {} {
+	SubstitutionImplementation1()	
+}
+
+void SubstitutionMachine0() : {} {
+	(SubstitutionMachine1() [RSubstitutionMachine0()])
+	#SubstitutionMachine0(>1)
+}
+
+void RSubstitutionMachine0() #RSubstitutionMachine0 : { Token t ; } {
+	<Parallel> SubstitutionMachine0() { jjtThis.setNodeName ("Parallel") ; }
+}
+
+void SubstitutionRefinement0() : {} {
+	(SubstitutionRefinement1() [RSubstitutionRefinement0()])
+	#SubstitutionRefinement0(>1)
+}
+
+void RSubstitutionRefinement0() #RSubstitutionRefinement0 : { Token t ; } {
+	<Parallel> SubstitutionRefinement0() { jjtThis.setNodeName ("Parallel") ; }
+	| <SemiColon> SubstitutionRefinement0() { jjtThis.setNodeName ("Sequence") ; }
+}
+
+void SubstitutionImplementation0() : {} {
+	(
+	  (LOOKAHEAD(SubstitutionDevientElementDe()) SubstitutionDevientElementDe() 
+	   | SubstitutionImplementation1()
+	  ) 
+	[RSubstitutionImplementation0()])
+	#SubstitutionImplementation0(>1)
+}
+
+void RSubstitutionImplementation0() #RSubstitutionImplementation0 : { Token t ; } {
+	<SemiColon> SubstitutionImplementation0() { jjtThis.setNodeName ("Sequence") ; }
+}
+
+void SubstitutionMachine1() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginMachine()
+	| SubstitutionSkipMachine()    
+	| SubstitutionAssertionMachine()
+	| SubstitutionChoiceMachine()
+	| SubstitutionIfMachine()
+	| SubstitutionSelectMachine()
+	| SubstitutionCaseMachine()              
+	| SubstitutionAnyMachine()
+	| SubstitutionLetMachine()  
+	| SubstitutionSimpleMachine()      
+}
+
+void SubstitutionPreconditionMachine() #SubstitutionPrecondition : {} {
+	<Pre> Predicate() <Then> SubstitutionMachine0() <End>
+}
+
+void SubstitutionBeginMachine() #SubstitutionBegin : {} {
+	<Begin> SubstitutionMachine0() <End>
+}
+
+void SubstitutionSkipMachine() #SubstitutionSkip : {} {
+	<Skip>
+}
+
+void SubstitutionSimpleMachine() : {} {
+	   LOOKAHEAD(SubstitutionDevienEgalFonction()) SubstitutionDevienEgalFonction()     
+	 | LOOKAHEAD(SubstitutionDevientElementDe()) SubstitutionDevientElementDe()
+	 | LOOKAHEAD(SubstitutionDevientTelQue()) SubstitutionDevientTelQue()
+	 | LOOKAHEAD(SubstitutionDevientEgalVariables()) SubstitutionDevientEgalVariables()
+	 | SubstitutionCallOperation()
+
+}
+
+void Identifiers() #Identifiers : {} {
+	IdentifierComposed() (<Comma> IdentifierComposed())*
+}
+
+void SubstitutionDevientEgalVariables() #SubstitutionBecomeEqualVariables : {} {
+	(CallDefinitionListExpression() | CallDefinitionExpression() | Identifiers()) <DevientEgal> 
+		(LOOKAHEAD(Expression() <Comma>) ListExpression() | Expression()) 
+}
+
+void SubstitutionDevienEgalFonction() #SubstitutionBecomeEqualFunction: {} {
+	LeftCallFunction() <DevientEgal> Expression()
+} 
+
+void LeftCallFunction() #LeftCallFunction : {} {
+	Expr8() (CallFunction())+
+}
+	   	
+void SubstitutionDevientTelQue() #SubstitutionBecomeSuch : {} {
+	(CallDefinitionListExpression() | CallDefinitionExpression() | Identifiers()) <In> <OpenParen> Predicate() <CloseParen> 
+}
+
+void SubstitutionDevientElementDe() #SubstitutionSetIn : {} {
+	(CallDefinitionListExpression() | CallDefinitionExpression() | Identifiers()) <SetIn> Expression() 
+}
+
+void SubstitutionCallOperation() #SubstitutionCallOperation : {} {
+	[LOOKAHEAD (Resultats()) Resultats()] OperationName() [ParametresEffectifs()]
+}
+
+void ParametresEffectifs() #Parameters : {} {
+	<OpenParen> PereListExpression() <CloseParen>
+}
+
+void SubstitutionCaseMachine() #SubstitutionCase : {} {
+	<Case> Expression() <Of> 
+	CaseEitherMachine() (CaseOrCMachine())* [ElseMachine()]  
+	<End>
+	<End>
+}
+
+void CaseEitherMachine() #Either : {} {
+	<Either> TermesSimples() ThenMachine()
+}
+
+void CaseOrCMachine() #Or : {} {
+	<OrC> TermesSimples() ThenMachine()
+}
+
+void SubstitutionAssertionMachine() #SubstitutionAssertion : {} {
+	<Assert> Predicate() ThenMachine() <End>
+}
+
+void SubstitutionChoiceMachine() #SubstitutionChoice : {} {
+	<Choice> SubstitutionMachine0() (<OrC> SubstitutionMachine0())* <End>
+}
+
+void SubstitutionIfMachine() #SubstitutionIf : {} {
+	<If> Predicate() ThenMachine() 
+	(ElseIfMachine())*
+	[ElseMachine()] <End>
+}
+
+void ElseIfMachine() #ElseIf : {} {
+	<Elsif> Predicate() ThenMachine()
+}
+
+void SubstitutionSelectMachine() #SubstitutionSelect : {} {
+	<Select> Predicate() ThenMachine()
+	(WhenMachine())*
+	[ElseMachine()] <End>
+}
+
+void WhenMachine() #When : {} {
+	<When> Predicate() ThenMachine()
+}
+
+void SubstitutionAnyMachine() #SubstitutionAny : {} {
+	<Any> PereListIdent() <Where> Predicate() ThenMachine() <End>
+}
+
+void SubstitutionLetMachine() #SubstitutionLet : {} {
+	<Let> PereListIdent() <Be> 
+	DefinitionsLet () 
+	<InLetVar> SubstitutionMachine0() <End>
+}
+
+void TermesSimples() #ListTermes : {} {
+	TermeSimple() (<Comma> TermeSimple())*
+}
+
+void ElseMachine() #Else : {} {
+	<Else> SubstitutionMachine0()
+}
+
+void ThenMachine() #Then : {} {
+	<Then> SubstitutionMachine0()
+}
+
+void DefinitionsLet() #LetDefinitions : {} {
+	DefinitionLet() (<And> DefinitionLet())*
+}
+
+void DefinitionLet() #Definition : {} {
+	DefinitionLet1()
+}
+
+void DefinitionLet1() #Equal : {} {
+	Identifier() <Equal> Expression()
+}
+
+void SubstitutionRefinement1() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginRefinement()
+	| SubstitutionSkipRefinement()    
+	| SubstitutionAssertionRefinement()
+	| SubstitutionChoiceRefinement()
+	| SubstitutionIfRefinement()
+	| SubstitutionSelectRefinement()
+	| SubstitutionCaseRefinement()              
+	| SubstitutionAnyRefinement()
+	| SubstitutionLetRefinement()  
+	| SubstitutionVarRefinement()
+	| SubstitutionSimpleRefinement()      
+}
+
+void SubstitutionVarRefinement() #SubstitutionVar : {} {
+	<Var> PereListIdent() <InLetVar> SubstitutionRefinement0() <End>
+}
+
+void SubstitutionPreconditionRefinement() #SubstitutionPrecondition : {} {
+	<Pre> Predicate() <Then> SubstitutionRefinement0() <End>
+}
+
+void SubstitutionBeginRefinement() #SubstitutionBegin : {} {
+	<Begin> SubstitutionRefinement0() <End>
+}
+
+void SubstitutionSkipRefinement() #SubstitutionSkip : {} {
+	<Skip>
+}
+
+void SubstitutionSimpleRefinement() : {} {
+	   LOOKAHEAD(SubstitutionDevienEgalFonction()) SubstitutionDevienEgalFonction()     
+	 | LOOKAHEAD(SubstitutionDevientElementDe()) SubstitutionDevientElementDe()
+	 | LOOKAHEAD(SubstitutionDevientEgalVariables()) SubstitutionDevientEgalVariables()
+	 | LOOKAHEAD(SubstitutionDevientTelQue()) SubstitutionDevientTelQue()
+	 | SubstitutionCallOperation()
+
+}
+
+void SubstitutionCaseRefinement() #SubstitutionCase : {} {
+	<Case> Expression() <Of> 
+	CaseEitherRefinement() (CaseOrCRefinement())* [ElseRefinement()]  
+	<End>
+	<End>
+}
+
+void CaseEitherRefinement() #Either : {} {
+	<Either> TermesSimples() ThenRefinement()
+}
+
+void CaseOrCRefinement() #Or : {} {
+	<OrC> TermesSimples() ThenRefinement()
+}
+
+void SubstitutionAssertionRefinement() #SubstitutionAssertion : {} {
+	<Assert> Predicate() ThenRefinement() <End>
+}
+
+void SubstitutionChoiceRefinement() #SubstitutionChoice : {} {
+	<Choice> SubstitutionRefinement0() (<OrC> SubstitutionRefinement0())* <End>
+}
+
+void SubstitutionIfRefinement() #SubstitutionIf : {} {
+	<If> Predicate() ThenRefinement() 
+	(ElseIfRefinement())*
+	[ElseRefinement()] <End>
+}
+
+void ElseIfRefinement() #ElseIf : {} {
+	<Elsif> Predicate() ThenRefinement()
+}
+
+void SubstitutionSelectRefinement() #SubstitutionSelect : {} {
+	<Select> Predicate() ThenRefinement()
+	(WhenRefinement())*
+	[ElseRefinement()] <End>
+}
+
+void WhenRefinement() #When : {} {
+	<When> Predicate() ThenRefinement()
+}
+
+void SubstitutionAnyRefinement() #SubstitutionAny : {} {
+	<Any> PereListIdent() <Where> Predicate() ThenRefinement() <End>
+}
+
+void SubstitutionLetRefinement() #SubstitutionLet : {} {
+	<Let> PereListIdent() <Be> 
+	DefinitionsLet () 
+	<InLetVar> SubstitutionRefinement0() <End>
+}
+
+void ElseRefinement() #Else : {} {
+	<Else> SubstitutionRefinement0()
+}
+
+void ThenRefinement() #Then : {} {
+	<Then> SubstitutionRefinement0()
+}
+
+void SubstitutionImplementation1() : {} {
+	  CallDefinitionSubstitution()
+	| SubstitutionBeginImplementation()
+	| SubstitutionSkipImplementation()    
+	| SubstitutionAssertionImplementation()
+	| SubstitutionIfImplementation()
+	| SubstitutionCaseImplementation()              
+	| SubstitutionWhileImplementation()  
+	| SubstitutionVarImplementation()
+	| SubstitutionSimpleImplementation()    
+}
+
+void SubstitutionVarImplementation() #SubstitutionVar : {} {
+	<Var> PereListIdent() <InLetVar> SubstitutionImplementation0() <End>
+}
+
+void SubstitutionBeginImplementation() #SubstitutionBegin : {} {
+	<Begin> SubstitutionImplementation0() <End>
+}
+
+void SubstitutionSkipImplementation() #SubstitutionSkip : {} {
+	<Skip>
+}
+
+void SubstitutionSimpleImplementation() : {} {
+	 LOOKAHEAD(SubstitutionDevientEgalVariablesImplementation()) SubstitutionDevientEgalVariablesImplementation()
+	 | SubstitutionCallOperationImplementation()
+}
+
+void SubstitutionDevientEgalVariablesImplementation() #SubstitutionBecomeEqualVariables : {} {
+	  LOOKAHEAD(ArrayElement()) ArrayElement() <DevientEgal> Terme()
+	| IdentifierComposed() <DevientEgal> ValueTerme()
+}
+
+void ArrayElement() #ArrayElement : {} {
+	IdentifierComposed() <OpenParen> IndexOfElement() <CloseParen> (<OpenParen> IndexOfElement() <CloseParen>)*
+}
+
+void IndexOfElement() : {} {
+	(    LOOKAHEAD(TermeSimple() <Maplet>) TermeSimple() RIndexOfElement() 
+	   | Terme()
+	)
+	#IndexOfElement(>1)
+}
+
+void RIndexOfElement() #RIndexOfElement : { Token t ; } {
+	<Maplet> { jjtThis.setNodeName ("OrderedPair") ; } IndexOfElement()
+}
+
+void SubstitutionCallOperationImplementation() #SubstitutionCallOperation : {} {
+	[LOOKAHEAD (Resultats()) Resultats()] OperationName() [ParametresEffectifsImplementation()] 
+}
+
+void ParametresEffectifsImplementation() #Parameters : {} {
+	<OpenParen> ListTermeString() <CloseParen>
+}
+
+void ListTermeString() #ListeTermeString : {} {
+	(Terme() | StringB()) (<Comma> (Terme() | StringB()))*
+}
+
+void SubstitutionCaseImplementation() #SubstitutionCase : {} {
+	<Case> Expression() <Of> 
+	CaseEitherImplementation() (CaseOrCImplementation())* [ElseImplementation()]  
+	<End>
+	<End>
+}
+
+void CaseEitherImplementation() #Either : {} {
+	<Either> TermesSimples() ThenImplementation()
+}
+
+void CaseOrCImplementation() #Or : {} {
+	<OrC> TermesSimples() ThenImplementation()
+}
+
+void SubstitutionAssertionImplementation() #SubstitutionAssertion : {} {
+	<Assert> Predicate() ThenImplementation() <End>
+}
+
+void SubstitutionIfImplementation() #SubstitutionIf : {} {
+	<If> Condition() ThenImplementation() 
+	(ElseIfImplementation())*
+	[ElseImplementation()] <End>
+}
+
+void ElseIfImplementation() #ElseIf : {} {
+	<Elsif> Predicate() ThenImplementation()
+}
+
+void ElseImplementation() #Else : {} {
+	<Else> SubstitutionImplementation0()
+}
+
+void ThenImplementation() #Then : {} {
+	<Then> SubstitutionImplementation0()
+}
+
+void SubstitutionWhileImplementation() #SubstitutionWhile : {} {
+	<While> Condition() <Do> SubstitutionImplementation0() 
+	<Invariant> Predicate()
+	<Variant> Expression()
+	<End>
+}
+
+void Condition() : {} {
+ 	Condition0() 
+}
+
+void Condition0() : {} {
+ 	(Condition1() [RCondition0()])
+	#Condition0(>1)
+}
+
+void RCondition0() #RCondition0 : { Token t ; } {
+	(  <Or>   { jjtThis.setNodeName ("Or") ; }
+	 | <And>  { jjtThis.setNodeName ("And") ; }
+	) Condition0()
+}
+
+void Condition1() : {} {
+	   CallDefinitionPredicate() 
+	 | Not()
+	 | ConditionParenthesee ()
+	 | LOOKAHEAD (Condition21 ()) Condition21 ()
+	 | Condition22()
+}
+
+void ConditionNot () #Not : {} {
+	<Not> <OpenParen> Predicate() <CloseParen>
+}
+
+void ConditionParenthesee () #PredicateParenthesis : {} {
+	<OpenParen> Predicate() <CloseParen>
+}
+
+void Condition21() #Condition2 : { Token t ; } {
+	ExpressionArithmetique()
+ 	  (  <LessThan>            { jjtThis.setNodeName ("LessThan") ; }
+           | <LessThanOrEqual>     { jjtThis.setNodeName ("LessThanOrEqual") ; } 
+	   | <GreatherThan> 	   { jjtThis.setNodeName ("GreatherThan") ; }
+	   | <GreatherThanOrEqual> { jjtThis.setNodeName ("GreatherThanOrEqual") ; }
+           | <NotEqual> 	   { jjtThis.setNodeName ("NotEqual") ; }
+           | <Equal> 		   { jjtThis.setNodeName ("Equal") ; }  
+          ) 
+	ExpressionArithmetique()	 
+}
+
+void Condition22() #Condition2 : { Token t ; } {
+	(BooleenLitteral() | ConditionExprArith() | IdentifierComposed())
+ 	  (   <NotEqual> 	   { jjtThis.setNodeName ("NotEqual") ; }
+            | <Equal> 		   { jjtThis.setNodeName ("Equal") ; }  
+          ) 
+	(BooleenLitteral() | ConditionExprArith() | IdentifierComposed())	 
+}
+
+void ValueTerme() : {} {
+	  CallDefinitionExpression()
+	| BooleenLitteral()
+	| ConditionExprArith()
+/*	| LOOKAHEAD(CallInTerme()) CallInTerme() */
+
+	| LOOKAHEAD(UnionSetImplementation()) UnionSetImplementation()
+	| ExtensionSetImplementation1()
+	| IntegerSetImplementation()
+	| ExpressionArithmetique()
+}
+
+void Terme() : {} {
+	  CallDefinitionExpression()
+	| BooleenLitteral()
+	| ConditionExprArith()
+	| ExpressionArithmetique()
+}
+
+void CallInTerme() #CallInTerme : {} {
+	IdentifierComposed() <OpenParen> IndexOfElement() <CloseParen> (<OpenParen> IndexOfElement() <CloseParen>)*
+}
+
+void TermeSimple() : {} {
+	 BooleenLitteral()
+	| EntierLitteral()
+	| IdentifierComposed()
+}
+
+void ArrayExpression() : {} {
+	  LOOKAHEAD(UnionSetImplementation()) UnionSetImplementation()
+	| ExtensionSetImplementation1()
+}
+
+void Plage() : {} {
+	LOOKAHEAD (Intervalle()) Intervalle()
+	| ExtensionSetImplementation2() 
+	| LOOKAHEAD (IdentifierComposed() <Product> <OpenBraces>) IdentifierComposed()
+	| LOOKAHEAD (ExpressionArithmetique()) ExpressionArithmetique() 
+	| IntegerSetImplementation()
+}
+
+void UnionSetImplementation() : {} {
+	(ElementUnionSetImplementation() [RUnionSetImplementation()])
+	#UnionSetImplementation(>1)
+}
+
+void RUnionSetImplementation() #RUnionSetImplementation : { Token t ; } {
+	<Union> { jjtThis.setNodeName ("Union") ; } UnionSetImplementation()
+}
+
+void ElementUnionSetImplementation() : {} {
+	 (LOOKAHEAD(Plage()) Plage() [RElementUnionSetImplementation()] | <OpenBraces> Terme() <CloseBraces>)
+	#ElementUnionSetImplementation(>1)
+}
+
+void RElementUnionSetImplementation() #RElementImplementation : { Token t ; } {
+	<Product> { jjtThis.setNodeName ("CartesianProduct") ; } ElementUnionSetImplementation()
+}
+
+void ExtensionSetImplementation1() #ExtensionSet : {} {
+	<OpenBraces> ListElementImplementation1() <CloseBraces>	
+}
+
+void ListElementImplementation1() #ListExpression : {} {
+        (<OpenParen> ElementImplementation() <CloseParen> | ElementImplementation())
+	    (<Comma> (<OpenParen> ElementImplementation() <CloseParen> | ElementImplementation()))* 
+	
+}
+
+void ElementImplementation() : {} {
+	(   LOOKAHEAD(TermeSimple() <Maplet>) TermeSimple() RElementImplementation() 
+	   | ExtensionSetImplementation1()
+	   | Terme()
+	)
+	#ElementImplementation(>1)
+}
+
+void RElementImplementation() #RElementImplementation : { Token t ; } {
+	<Maplet> { jjtThis.setNodeName ("OrderedPair") ; } ElementImplementation()
+}
+
+void ExtensionSetImplementation2() #ExtensionSet : {} {
+	<OpenBraces> ListElementImplementation2() <CloseBraces>
+}
+
+void ListElementImplementation2() #ListExpression : {} {
+	TermeSimple() (<Comma> TermeSimple())* 
+}
+
+void Intervalle() #NatRange : {} {
+	LOOKAHEAD(ExpressionArithmetique()) ExpressionArithmetique() <NatRange> ExpressionArithmetique()
+	| <OpenParen> ExpressionArithmetique() <NatRange> ExpressionArithmetique() <CloseParen>
+}
+
+void ExpressionArithmetique() : {} {
+	ExprArith()
+}
+
+void ExprArith() : {} {
+	(ExprArith0() [RExprArith()])
+	#ExprArith(>1)
+}
+
+void RExprArith() #RExprArith : { Token t ; } {
+	(  <Plus>    { jjtThis.setNodeName ("Plus") ; }
+	 | <Minus>   { jjtThis.setNodeName ("Minus") ; }
+	) ExprArith()
+}
+
+void ExprArith0() : {} { 
+	(ExprArith1() [RExprArith0()])
+	#ExprArith0(>1)
+}
+
+void RExprArith0() #RExprArith0 : { Token t ; } {
+	(  <Product>  { jjtThis.setNodeName ("Product") ; }
+ 	 | <Division> { jjtThis.setNodeName ("Division") ; }
+	 | <Modulo>   { jjtThis.setNodeName ("Modulo") ; }
+	) ExprArith0()
+}
+
+void ExprArith1() : {} {
+	(ExprArith2() [RExprArith1()])
+	#ExprArith1(>1)
+}
+
+void RExprArith1() #RExprArith1 : { Token t ; } {
+	<Power> ExprArith2() { jjtThis.setNodeName ("Power") ; }
+}
+
+void ExprArith2() : {} {
+	([RExprArith2()] ExprArith3())
+	#ExprArith2(>1)
+}
+
+void RExprArith2() #RExprArith2 : { Token t ; } {
+	<Minus> { jjtThis.setNodeName ("UnaryMinus") ; }
+}
+
+void ExprArith3() : {} {
+	  EntierLitteral()
+	| LOOKAHEAD(CallInTerme()) CallInTerme()
+	| IdentifierComposed()
+	| SuccArith()
+	| PredArith()
+	| ExpParenArith ()
+}
+
+void ExpParenArith () #ExpressionParenthesis : {} {
+	<OpenParen> ExpressionArithmetique() <CloseParen>
+}
+
+void SuccArith() #Succ : {} {
+	<Succ> <OpenParen> ExpressionArithmetique() <CloseParen>
+}
+
+void PredArith() #Pred : {} {
+	<Pred> <OpenParen> ExpressionArithmetique() <CloseParen>
+}
+
+void ConditionExprArith() #ConditionExpression : {} {
+	<Bool> <OpenParen> Condition() <CloseParen>
+}
+
+void Predicate() : {} {
+	PredLevel()
+}
+
+void PredLevel() : {} {
+ 	(PredLevel0() [RPredLevel()])
+	#PredLevel(>1) 
+}
+
+void RPredLevel() #RPredLevel : { Token t ; } {
+ 	<Implication> PredLevel() { jjtThis.setNodeName ("Implication") ; }
+}
+
+void PredLevel0() : {} {
+ 	(PredLevel1() [RPredLevel0()])
+	#PredLevel0(>1)
+}
+
+void RPredLevel0() #RPredLevel0 : { Token t ; } {
+	(  <Or>   { jjtThis.setNodeName ("Or") ; }
+	 | <And>  { jjtThis.setNodeName ("And") ; }
+	) PredLevel0()
+}
+
+void PredLevel1() : {} {
+	(PredLevel2() [RPredLevel1()])
+	#PredLevel1(>1)
+}
+
+void RPredLevel1() #RPredLevel1 : { Token t ; } {
+ 	<Equivalence> PredLevel1() { jjtThis.setNodeName ("Equivalence") ; }
+}
+
+void PredLevel2() : {} {
+	   CallDefinitionPredicate()
+         | LOOKAHEAD(<Forall>  <OpenParen>) ForAll1()
+	 | ForAll2() 
+	 | LOOKAHEAD(<Exists>  <OpenParen>) Exists1()
+	 | Exists2() 
+	 | Not()
+	 | LOOKAHEAD(Expression() (<LessThan> | <LessThanOrEqual> | <GreatherThan> 	   
+	     | <GreatherThanOrEqual> | <NotEqual> | <Equal>)) Comparaison()
+	 | LOOKAHEAD(PereListExpression() (<In> | <NotSetMemberShip> | <Subset> 	           { jjtThis.setNodeName ("Subset") ; }
+            | <StrictSubset> | <NotSubset> | <NotStrictSubset>)) PredicatEnsemblisteSimple()  
+	 | PredicatParenthese () 
+}
+
+void ForAll1 () #ForAll : {} {
+	<Forall>  <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> ImplicationInForAll() <CloseParen>
+}
+
+void ForAll2 () #ForAll : {} {
+	<Forall> Identifier() <Point> <OpenParen> ImplicationInForAll() <CloseParen>
+}
+
+void ImplicationInForAll () #Implication : {} {
+	PredLevel0() <Implication> PredLevel0()
+}
+
+void Exists1 () #Exists : {} {
+	<Exists>  <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <CloseParen>
+}
+
+void Exists2 () #Exists : {} {
+	<Exists>  Identifier() <Point> <OpenParen> Predicate() <CloseParen>
+}
+
+void Not () #Not : {} {
+	<Not> <OpenParen> Predicate() <CloseParen>
+}
+
+void PredicatParenthese () #PredicateParenthesis : {} {
+	<OpenParen> Predicate() <CloseParen>
+}
+
+void PredLevel3() : {} {
+	  LOOKAHEAD(Comparaison()) Comparaison()
+	| PredicatEnsemblisteSimple()
+}
+
+void Comparaison() #PredLevel3 : { Token t ; } {
+	  Expression()   
+ 	    (  <LessThan>            { jjtThis.setNodeName ("LessThan") ; }
+             | <LessThanOrEqual>     { jjtThis.setNodeName ("LessThanOrEqual") ; } 
+	     | <GreatherThan> 	   { jjtThis.setNodeName ("GreatherThan") ; }
+	     | <GreatherThanOrEqual> { jjtThis.setNodeName ("GreatherThanOrEqual") ; }
+             | <NotEqual> 	   { jjtThis.setNodeName ("NotEqual") ; }
+             | <Equal> 		   { jjtThis.setNodeName ("Equal") ; }
+	    )
+	   Expression()
+}
+
+void PredicatEnsemblisteSimple() #PredLevel3 : { Token t ; } {
+	 PereListExpression()
+	   ( 
+             <In> 		   { jjtThis.setNodeName ("In") ; }
+            | <NotSetMemberShip>    { jjtThis.setNodeName ("NotSetMemberShip") ; }
+            | <Subset> 	           { jjtThis.setNodeName ("Subset") ; }
+            | <StrictSubset> 	   { jjtThis.setNodeName ("StrictSubset") ; }
+            | <NotSubset> 	   { jjtThis.setNodeName ("NotSubset") ; }
+            | <NotStrictSubset>     { jjtThis.setNodeName ("NotStrictSubset") ; }
+           ) 
+	  Expression()	 
+}
+
+void Expression() : {} {
+	Expr()
+}
+
+void Expr () : {} {
+	(Expr0() [RExpr()])
+	#Expr(>1)
+}
+
+void RExpr() #RExpr : { Token t ; } {
+	   <ParallelProduct> Expr() { jjtThis.setNodeName ("ParallelProduct") ; }
+	 | <Composition> Expr() { jjtThis.setNodeName ("Composition") ; }
+}
+
+void Expr0() : {} {
+	(Expr1() [RExpr0()])
+	#Expr0(>1)
+}
+
+void RExpr0() #RExpr0 : { Token t ; } {
+	(  <Relation> { jjtThis.setNodeName ("Relation") ; }
+	 | <TotalFunction> { jjtThis.setNodeName ("TotalFunction") ; }
+         | <PartialFunction> { jjtThis.setNodeName ("PartialFunction") ; }
+	 | <TotalSurjection> { jjtThis.setNodeName ("TotalSurjection") ; }
+         | <PartialSurjection> { jjtThis.setNodeName ("PartialSurjection") ; }
+         | <TotalInjection> { jjtThis.setNodeName ("TotalInjection") ; }
+         | <PartialInjection> { jjtThis.setNodeName ("PartialInjection") ; }
+         | <TotalBijection> { jjtThis.setNodeName ("TotalBijection") ; }
+         | <PartialBijection> { jjtThis.setNodeName ("PartialBijection") ; }
+        ) Expr0()
+}
+
+void Expr1() : {} {
+	(Expr2() [RExpr1()])
+	#Expr1(>1)
+}
+
+void RExpr1() #RExpr1 : { Token t ; } {
+	(  <Union> { jjtThis.setNodeName ("Union") ; }
+	 | <Intersection> { jjtThis.setNodeName ("Intersection") ; }
+         | <Maplet> { jjtThis.setNodeName ("OrderedPair") ; }
+	 | <Composition> { jjtThis.setNodeName ("Composition") ; }
+         | <DirectProduct> { jjtThis.setNodeName ("DirectProduct") ; }
+         | <DomainRestriction> { jjtThis.setNodeName ("DomainRestriction") ; }
+         | <DomainSubstraction> { jjtThis.setNodeName ("DomainSubstraction") ; }
+         | <RangeRestriction> { jjtThis.setNodeName ("RangeRestriction") ; }
+         | <RangeSubstraction> { jjtThis.setNodeName ("RangeSubstraction") ; }
+         | <Override> { jjtThis.setNodeName ("Overriding") ; }
+         | <ConcatSequence> { jjtThis.setNodeName ("ConcatSequence") ; }
+         | <AppendSequence> { jjtThis.setNodeName ("AppendSequence") ; }
+         | <PrependSequence> { jjtThis.setNodeName ("PrependSequence") ; }
+         | <PrefixSequence> { jjtThis.setNodeName ("PrefixSequence") ; }
+         | <SuffixSequence> { jjtThis.setNodeName ("SuffixSequence") ; }
+        ) Expr1()
+}
+
+void Expr2() : {} {
+	(Expr3() [RExpr2()])
+	#Expr2(>1)
+}
+
+void RExpr2() #RExpr2 : { Token t ; } {
+	<NatRange> Expr2() { jjtThis.setNodeName ("NatRange") ; }
+}
+
+void Expr3() : {} {
+	(Expr4() [RExpr3()])
+	#Expr3(>1)
+}
+
+void RExpr3() #RExpr3 : { Token t ; } {
+	(
+	   <Minus> { jjtThis.setNodeName ("Minus") ; }
+	 | <SetMinus> { jjtThis.setNodeName ("SetMinus") ; }
+	 | <Plus> { jjtThis.setNodeName ("Plus") ; }
+	) Expr3()
+}
+
+void Expr4() : {} {
+	(Expr5() [RExpr4()])
+	#Expr4(>1)
+}
+
+void RExpr4() #RExpr4 : { Token t ; } {
+	(
+	   <Product>  { jjtThis.setNodeName ("Product") ; }
+	 | <CartesianProduct> { jjtThis.setNodeName ("CartesianProduct") ; }
+	 | <Division> { jjtThis.setNodeName ("Division") ; }
+	 | <Modulo>   { jjtThis.setNodeName ("Modulo") ; }
+	) Expr4()
+}
+
+void Expr5() : {} {
+	(Expr6() [RExpr5()])
+	#Expr5(>1)
+}
+
+void RExpr5() #RExpr5 : { Token t ; } {
+	   <Power>  Expr5() { jjtThis.setNodeName ("Power") ; }
+}
+
+void Expr6() : {} {
+	([RExpr6()] Expr7())
+	#Expr6(>1)
+}
+
+void RExpr6() #RExpr6 : { Token t ; } {
+	<Minus> { jjtThis.setNodeName ("UnaryMinus") ; }
+}
+
+void Expr7() : {} {
+	 (Expr8() (RExpr7())*)
+	 #Expr7(>1)
+}
+
+void RExpr7() : {} {
+	(
+	   Inverse() 
+	 | Image() 
+	 | CallFunction()
+	) 
+}
+
+void Inverse() #Inverse : {} {
+	<Tilde>
+}
+
+void Image() #Image : {} {
+	<OpenCurly> Expression() <CloseCurly>
+}
+
+void CallFunction() #CallFunction : {} {
+	<OpenParen> Expression() <CloseParen>
+}
+
+void Expr8() : {} {
+	  CallDefinitionExpression () 
+	| PredicateExpression()   
+	| ExpressionParenthesee ()
+	| EmptySequence ()
+	| EmptySequenceOld ()
+	| ExtensionSequence ()
+	| LOOKAHEAD (Sigma1 ()) Sigma1 ()
+	| Sigma2 ()
+	| LOOKAHEAD (Pi1 ()) Pi1 ()
+	| Pi2 ()
+	| LOOKAHEAD (UnionQuantifiee1 ()) UnionQuantifiee1 ()
+	| UnionQuantifiee2 ()
+	| LOOKAHEAD (IntersectionQuantifiee1 ()) IntersectionQuantifiee1 ()
+	| IntersectionQuantifiee2 ()
+	| LOOKAHEAD (Lambda1 ()) Lambda1 ()
+	| Lambda2 ()
+	| UnionGeneralisee ()
+	| IntersectionGeneralisee ()
+	| IntegerSet ()
+	| EntierLitteral ()
+	| BooleenLitteral ()
+	| BooleanSet ()
+	| StringSet ()
+	| StringB ()
+	| Succ ()
+	| Pred ()
+	| Max ()
+	| Min ()
+	| Card ()
+	| Pow ()
+	| Pow1 ()
+	| Fin () 
+	| Fin1 () 
+	| Identity ()
+	| Prj1 () 
+	| Prj2 ()
+	| Iterate ()
+	| Closure ()
+	| Closure1 ()
+	| Domain ()
+	| Range ()
+	| Fnc ()
+	| Rel ()
+	| Seq ()
+	| Seq1 ()
+	| Iseq ()
+	| Iseq1 ()
+	| Perm () 
+	| Size ()
+	| First ()
+	| Last ()
+	| Front ()
+	| Tail ()
+	| Rev ()
+	| Conc ()
+	| IdentifierB () 
+	| EmptySet ()
+	| LOOKAHEAD(ComprehensionSet()) ComprehensionSet()
+	| ExtensionSet()	  
+}
+
+void PredicateExpression() #PredicateExpression : {} {
+	<Bool> <OpenParen> Predicate() <CloseParen>
+}
+void ExpressionParenthesee () #ExpressionParenthesis : {} {
+	<OpenParen> Expression() <CloseParen>
+}
+
+void EmptySequence () #EmptySequence : {} {
+	<EmptySequence>
+}
+
+void EmptySequenceOld () #EmptySequence : {} {
+	<EmptySequenceOld>
+}
+
+void ExtensionSequence() #ExtensionSequence : {} {
+	<OpenCurly> PereListExpression() <CloseCurly>
+}
+
+void Sigma1 () #Sigma : {} {
+	  <Sigma> <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void Sigma2 () #Sigma : {} {
+	<Sigma> Identifier () <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void Pi1 () #Pi : {} {
+	<Pi> <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void Pi2 () #Pi : {} {
+	<Pi> Identifier() <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+
+}
+
+void UnionQuantifiee1 () #UnionQuantified : {} {
+	<UnionQuant> <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void UnionQuantifiee2 () #UnionQuantified : {} {
+	<UnionQuant> Identifier() <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void IntersectionQuantifiee1 () #IntersectionQuantified : {} {
+	<InterQuant> <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void IntersectionQuantifiee2 () #IntersectionQuantified : {} {
+	<InterQuant> Identifier() <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void Lambda1 () #Lambda : {} {
+	<Lambda> <OpenParen> PereListIdent() <CloseParen> <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void Lambda2 () #Lambda : {} {
+	<Lambda> Identifier() <Point> <OpenParen> Predicate() <SuchAs> Expression() <CloseParen>
+}
+
+void UnionGeneralisee () #UnionGeneralized : {} {
+	<UnionGen> <OpenParen> PereListExpression() <CloseParen>
+}
+
+void IntersectionGeneralisee () #IntersectionGeneralized : {} {
+	<InterGen> <OpenParen> PereListExpression() <CloseParen>
+}
+
+void IntegerSet () #IntegerSet : { Token t ; } {
+	(  t = <Integer>  { jjtThis.setNodeName (t.image) ; }
+	 | t = <Natural1> { jjtThis.setNodeName (t.image) ; }
+	 | t = <Natural>  { jjtThis.setNodeName (t.image) ; }
+	 | t = <Nat>      { jjtThis.setNodeName (t.image) ; }
+	 | t = <Nat1>     { jjtThis.setNodeName (t.image) ; }
+	 | t = <Int>      { jjtThis.setNodeName (t.image) ; }
+	)
+}
+
+void IntegerSetImplementation () #IntegerSet : { Token t ; } {
+	(  t = <Nat>      { jjtThis.setNodeName (t.image) ; }
+	 | t = <Nat1>     { jjtThis.setNodeName (t.image) ; }
+	 | t = <Int>      { jjtThis.setNodeName (t.image) ; }
+	)
+}
+
+void EntierLitteral() #Integer : { Token t ; } {
+	(
+	   t = <Number> { jjtThis.setNodeName (t.image) ; }
+	 | t = <MaxInt> { jjtThis.setNodeName (t.image) ; }
+	 | t = <MinInt> { jjtThis.setNodeName (t.image) ; }
+	)
+}
+
+void BooleenLitteral() #Boolean : { Token t ; } {
+	(
+	   t = <False> { jjtThis.setNodeName (t.image) ; }
+	 | t = <True> { jjtThis.setNodeName (t.image) ; }
+	)
+}
+
+void BooleanSet () #BooleanSet : {} {
+	<Boolean>
+}
+
+void StringSet () #STRING : {} {
+	<StringSet>
+}
+
+void StringB () #StringB : { Token t ; } {
+	t = <String> { jjtThis.setNodeName (t.image) ; }
+}
+
+void Succ () #Succ : {} {
+	<Succ> <OpenParen> Expression() <CloseParen>
+}
+
+void Pred() #Pred : {} {
+	<Pred> <OpenParen> Expression() <CloseParen>
+}
+
+void Max () #Max : {} {
+	<Max> <OpenParen> Expression() <CloseParen>
+}
+
+void Min () #Min : {} {
+	<Min> <OpenParen> Expression() <CloseParen>
+}
+
+void Card () #Card : {} {
+	<Card> <OpenParen> Expression() <CloseParen>
+}
+
+void Pow () #PowerSet : {} {
+	<POW> <OpenParen> Expression() <CloseParen>
+}
+
+void Pow1 () #NonEmptySubsets : {} {
+	<POW1> <OpenParen> Expression() <CloseParen>
+}
+
+void Fin () #FinitePowerSet : {} {
+	<FIN> <OpenParen> Expression() <CloseParen>
+}
+
+void Fin1 () #NonEmptyFiniteSubsets : {} {
+	<FIN1> <OpenParen> Expression() <CloseParen>
+}
+
+void Identity () #Identity : {} {
+	<Id> <OpenParen> Expression() <CloseParen>
+}
+
+void Prj1 () #Prj1 : {} {
+	<Prj1> <OpenParen> Expression() <Comma> Expression() <CloseParen>
+}
+
+void Prj2 () #Prj2 : {} {
+	<Prj2> <OpenParen> Expression() <Comma> Expression() <CloseParen>
+}
+
+void Iterate () #Iterate : {} {
+	<Iterate> <OpenParen> Expression() <Comma> Expression() <CloseParen>
+}
+
+void Closure () #Closure : {} {
+	<Closure> <OpenParen> Expression() <CloseParen>
+}
+
+void Closure1 () #Closure1 : {} {
+	<Closure1> <OpenParen> Expression() <CloseParen>
+}
+
+void Domain () #Domain : {} {
+	  <Dom> <OpenParen> Expression() <CloseParen>
+}
+
+void Range () #Range : {} {
+	  <Ran> <OpenParen> Expression() <CloseParen>
+}
+
+void Fnc () #Fnc : {} {
+	  <Fnc> <OpenParen> Expression() <CloseParen>
+}
+
+void Rel () #Rel : {} {
+	  <Rel> <OpenParen> Expression() <CloseParen>
+}
+
+void Seq () #Seq : {} {
+	  <Seq> <OpenParen> Expression() <CloseParen>
+}
+
+void Seq1 () #Seq1 : {} {
+	  <Seq1> <OpenParen> Expression() <CloseParen>
+}
+
+void Iseq () #Iseq : {} {
+	  <Iseq> <OpenParen> Expression() <CloseParen>
+}
+
+void Iseq1 () #Iseq1 : {} {
+	  <Iseq1> <OpenParen> Expression() <CloseParen>
+}
+
+void Perm () #Perm : {} {
+	  <Perm> <OpenParen> Expression() <CloseParen>
+}
+
+void Size () #Size : {} {
+	  <Size> <OpenParen> Expression() <CloseParen>
+}
+
+void First () #First : {} {
+	  <First> <OpenParen> Expression() <CloseParen>
+}
+
+void Last () #Last : {} {
+	  <Last> <OpenParen> Expression() <CloseParen>
+}
+
+void Front () #Front : {} {
+	  <Front> <OpenParen> Expression() <CloseParen>
+}
+
+void Tail () #Tail : {} {
+	  <Tail> <OpenParen> Expression() <CloseParen>
+}
+
+void Rev () #Rev : {} {
+	  <Rev> <OpenParen> Expression() <CloseParen>
+}
+
+void Conc () #Conc : {} {
+	  <Conc> <OpenParen> Expression() <CloseParen>
+}
+
+void IdentifierB() : {} {
+	LOOKAHEAD(DollarZero()) DollarZero()
+	| IdentifierComposed() 
+}
+
+void DollarZero() #DollarZero : {} {
+	IdentifierComposed() <DollarZero>
+}
+
+void EmptySet() #EmptySet : {} {
+	<EmptySet>
+}
+
+void ComprehensionSet() #ComprehensionSet : {} {
+	<OpenBraces> PereListIdent() <SuchAs> Predicate() <CloseBraces>
+}
+
+void ExtensionSet() #ExtensionSet : {} {
+	<OpenBraces> PereListExpression() <CloseBraces>
+}
+
+void PereListIdent() : {} {
+ 	CallDefinitionListExpression() | ListIdent()
+}
+
+void ListIdent() #ListIdent : {} {
+ 	IdentifierComposed () (<Comma> IdentifierComposed())* 
+}
+
+void PereListExpression() : {} {
+ 	CallDefinitionListExpression() | ListExpression()
+}
+
+void ListExpression() #ListExpression : {} {
+ 	Expression () (<Comma> Expression())*
+}
+
+void ListParametresDef() #ListParametresDefs : {} {
+ 	(IdentifierComposed() | EntierLitteral()) (<Comma> IdentifierComposed() | EntierLitteral())* 
+}
+
+void CallDefinitionSubstitution() #CallDefinitionSubstitution : {} {
+	LOOKAHEAD ( { definitions.containsKey(getToken(1).image) && definitions.get(getToken(1).image).equals("Substitution") } ) 
+	  Identifier() [<OpenParen> ListParametresDef() <CloseParen>]
+}
+
+void CallDefinitionPredicate() #CallDefinitionPredicate : {} {
+	LOOKAHEAD ( { definitions.containsKey(getToken(1).image) && definitions.get(getToken(1).image).equals("Predicate")  } ) 
+	  Identifier() [<OpenParen> ListParametresDef() <CloseParen>]
+}
+
+void CallDefinitionListExpression() #CallDefinitionListExpression : {} {
+	LOOKAHEAD ( { definitions.containsKey(getToken(1).image) && definitions.get(getToken(1).image).equals("ListExpression")  } ) 
+	  Identifier() [<OpenParen> ListParametresDef() <CloseParen>]
+}
+
+void CallDefinitionExpression() #CallDefinitionExpression : {} {
+	LOOKAHEAD ( { definitions.containsKey(getToken(1).image) && definitions.get(getToken(1).image).equals("Expression")  } ) 
+	  Identifier() [<OpenParen> ListParametresDef() <CloseParen>]
+}
+
+void Identifier() #Identifier : { Token t; } {
+	t = <IDENTIFIER> { jjtThis.setNodeName (t.image) ; }
+}
+
+void IdentifierComposed() #IdentifierComposed : {} {
+	Identifier() (<Point> Identifier())*	
+}
