@@ -9,7 +9,8 @@ import org.jdom2.Element;
 
 public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEventBVisitor {
 	HashMap<String, CSet> listSets = new HashMap<String, CSet>();
-
+	HashMap<String, CConstant> listConst = new HashMap<String, CConstant>();
+	
 	public Object visit(Noeud node) {
 
 		String nodeName = node.getNodeName();
@@ -44,6 +45,15 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("Sets")){
 			this.visitSets(node);
 		}
+		else if(nodeName.equals("ConcreteConstants")){
+			this.visitConstant(node);
+		}
+		else if(nodeName.equals("Properties")){
+			this.visitProperties(node);
+		}
+		else if(nodeName.equals("Definitions")){
+			this.visitDefinitions(node);
+		}
 		else if(nodeName.equals("ExtensionSet")){
 			return this.visitExtensionSet(node);
 		}
@@ -76,6 +86,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("GreatherThanOrEqual")){
 			return this.visitGreatherThanOrEqual(node);
 		}
+		else if(nodeName.equals("LessThanOrEqual")){
+			return this.visitLessThanOrEqual(node);
+		}
 		else if(nodeName.equals("Exists")){
 			return this.visitExists(node);
 		}
@@ -96,7 +109,7 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("Operation")){
 			return this.visitOperation(node);
 		}
-		else if(nodeName.equals("SubstitutionSelect")){
+		else if(nodeName.equals("SubstitutionSelect") || nodeName.equals("SubstitutionPrecondition")){
 			return this.visitSubstitutionSelect(node);
 		}
 		else if(nodeName.equals("SubstitutionIf")){
@@ -130,7 +143,8 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		}
 		return null;
 	}
-	
+
+
 
 	private Object visitElse(Noeud node) {
 		return (Element)node.getChild(0).accept(this);
@@ -169,8 +183,11 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		cMachine.setAttribute("name", node.getChild(0).getChild(0).getChild(0).getNodeValue());
 		for(int i=1; i< node.getNumChildren();i++){
 			//System.out.println(node.getChild(i).getNodeName());
-			//if(node.getChild(i).getNodeName().equals("Operations")){
-				if(node.getChild(i).getNodeName().equals("Sets")){
+			//if(node.getChild(i).getNodeName().equals("Invariant")){
+				if(node.getChild(i).getNodeName().equals("Sets") ||
+						node.getChild(i).getNodeName().equals("ConcreteConstants") ||
+						node.getChild(i).getNodeName().equals("Properties") ||
+						node.getChild(i).getNodeName().equals("Definitions")){
 					node.getChild(i).accept(this);
 				}
 				else{
@@ -185,7 +202,26 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	private Object visitGreatherThanOrEqual(Noeud node) {// revoir pour >=
 		Element cG = new Element("CGreater");
 		cG.addContent((Element)node.getChild(0).accept(this));
+		
+		Element cm = new Element("CMinus");
+		cm.addContent((Element)node.getChild(1).accept(this));
+		Element cN = new Element("CNumber");
+		cN.setAttribute("val","1");
+		cm.addContent(cN);
+		cG.addContent(cm);
+		return cG;
+	}
+	
+	private Object visitLessThanOrEqual(Noeud node) {// revoir pour <=
+		Element cG = new Element("CGreater");
 		cG.addContent((Element)node.getChild(1).accept(this));
+		
+		Element cm = new Element("CMinus");
+		cm.addContent((Element)node.getChild(1).accept(this));
+		Element cN = new Element("CNumber");
+		cN.setAttribute("val","1");
+		cm.addContent(cN);
+		cG.addContent(cm);
 		return cG;
 	}
 
@@ -246,6 +282,13 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		return var;
 	}
 
+	private void visitConstant(Noeud node) {
+		for(int i=0; i< node.getChild(0).getNumChildren();i++){
+			CConstant cConst = new CConstant(node.getChild(0).getChild(i).getChild(0).getNodeValue());
+			listConst.put(cConst.getName(), cConst);
+		}
+	}	
+	
 	public void visitSets(Noeud node){
 		for(int i=0; i< node.getNumChildren();i++){
 			Noeud decl = node.getChild(i);
@@ -253,11 +296,61 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			listSets.put(cset.getName(), cset);
 		}
 	}
+	
+	private void visitProperties(Noeud node) {
+		//System.out.println(node.getNodeName());
+		for(int i=0; i< node.getNumChildren();i++){
+			//System.out.println(node.getChild(i).getNodeName());
+			Noeud fn = node.getChild(i);
+			
+			if(fn.getNodeName().equals("Equal")){
+				String cons = fn.getChild(0).getChild(0).getNodeValue();
+				//System.out.println(cons);
+				if(listConst.containsKey(cons)){
+					CConstant cc = listConst.get(cons);
+					cc.setValue(Integer.parseInt(fn.getChild(1).getNodeValue()));
+					listConst.put(cc.getName(), cc);
+					//System.out.println(cc);
+				}
+			}
+			else{
+				visitProperties(fn);
+			}
+		}
+	}
+	
+	
+	private void visitDefinitions(Noeud node) {
+		for(int i=0; i< node.getNumChildren();i++){
+			Noeud def = node.getChild(i);
+			CSet cset = new CSet((def.getChild(0).getChild(0).getChild(0).getNodeValue()).toString());
+			if(def.getChild(1).getChild(0).getNodeName().equals("Integer")){
+				cset.setBorMin(Integer.parseInt(def.getChild(1).getChild(0).getNodeValue()));
+			}
+			else{
+				
+				cset.setBorMin(listConst.get(def.getChild(1).getChild(0).getChild(0).getNodeValue()).getValue());
+			}
+			
+			if(def.getChild(1).getChild(1).getNodeName().equals("Integer")){
+				cset.setBornMax(Integer.parseInt(def.getChild(1).getChild(1).getNodeValue()));
+			}
+			else{
+				cset.setBornMax(listConst.get(def.getChild(1).getChild(1).getChild(0).getNodeValue()).getValue());
+			}
+			//System.out.println(cset);
+			listSets.put(cset.getName(), cset);
+		}
+	}
+
+
+
 
 	@SuppressWarnings("unchecked")
 	public Object visitInvariant(Noeud node) {
 		Element cInvariant = new Element("INVARIANT");
 		for(int i=0; i< node.getNumChildren();i++){
+			//System.out.println(node.getChild(i).getNodeName());
 			Object elt = node.getChild(i).accept(this);
 			if(elt instanceof Element){
 				cInvariant.addContent((Element)elt);
@@ -289,7 +382,6 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	public Object visitAnd(Noeud node) {
 		Element cCAnd = new Element("CAnd");
 		for(int i=0; i< node.getNumChildren();i++){
-			//System.out.println(node.getChild(i).getNodeName());
 			if(node.getChild(i).getNodeName().equals("And")){
 				for(int j=0; j < node.getChild(i).getNumChildren(); j++){
 					Object elt = node.getChild(i).getChild(j).accept(this);
@@ -315,7 +407,6 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 
 	@Override
 	public Object visitIn(Noeud node) {
-		//System.out.println(node.getChild(1).getChild(0).getNodeValue());
 		Element cn = null;
 		Noeud n =  node.getChild(1);
 		if(n.getNodeName().equals("IntegerSet")){
@@ -330,12 +421,32 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			Element g1 = new Element("CGreater");
 			Element g2 = new Element("CGreater");
 			
-			cn = new Element("CGreater");
 			g1.addContent((Element)node.getChild(0).accept(this));
-			g1.addContent((Element)n.getChild(0).accept(this));
+			if(n.getChild(0).getNodeName().equals("IdentifierComposed")){
+				if(listConst.containsKey(n.getChild(0).getChild(0).getNodeValue())){
+					//System.out.println(n.getChild(0).getChild(0).getNodeValue());
+					Element e = new Element("CNumber");
+					e.setAttribute("val",""+(listConst.get(n.getChild(0).getChild(0).getNodeValue())).getValue());
+					g1.addContent(e);
+				}
+			}
+			else{
+				g1.addContent((Element)n.getChild(0).accept(this));
+			}
 			cl.add(g1);
 			
-			g2.addContent((Element)n.getChild(n.getNumChildren()-1).accept(this));
+			if(n.getChild(n.getNumChildren()-1).getNodeName().equals("IdentifierComposed")){
+				if(listConst.containsKey(n.getChild(n.getNumChildren()-1).getChild(0).getNodeValue())){
+					
+					Element e = new Element("CNumber");
+					e.setAttribute("val",""+(listConst.get(n.getChild(n.getNumChildren()-1).getChild(0).getNodeValue())).getValue());
+					g2.addContent(e);
+				}
+			}
+			else{
+				g2.addContent((Element)n.getChild(n.getNumChildren()-1).accept(this));
+			}
+			//g2.addContent((Element)n.getChild(n.getNumChildren()-1).accept(this));
 			g2.addContent((Element)node.getChild(0).accept(this));
 			cl.add(g2);
 			return cl;
@@ -517,17 +628,14 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		}
 
 		//System.out.println(node.getChild(node.getNumChildren()-1).getNodeName());
-		if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionSelect")){
+		if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionSelect") ||
+				node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionPrecondition")){
 			cOperation = new Element("CGuardedEvent");
 		}
 		else if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionBegin")){
 			cOperation = new Element("CNonGuardedEvent");
 		}
 		else if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionAny")){
-			//cOperation = (Element)node.getChild(node.getNumChildren()-1).accept(this);
-			//cOperation.setName("CAnyEvent");
-			//cOperation.setAttribute("name", node.getChild(0).getChild(0).getChild(0).getNodeValue());
-			//return cOperation;
 			cOperation = new Element("CAnyEvent");
 		}
 		cOperation.setAttribute("name", node.getChild(0).getChild(0).getChild(0).getNodeValue());

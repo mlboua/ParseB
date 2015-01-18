@@ -1,6 +1,7 @@
 MACHINE
 	ESSUYAGE_AV1
 
+
 CONSTANTS
 	
 	VIT1,
@@ -29,15 +30,21 @@ SETS
 	T_INT_AV = {36, 37, 38, 39, 
 		40, 41}
 
-DEFINITIONS
 
-	VITESSE == 0..MAX_VITESSE	
 
 PROPERTIES
 
 	VIT1 = 5		&
 	VIT2 = 10		&
 	MAX_VITESSE = 100	
+	
+
+DEFINITIONS
+
+	VITESSE == 0..MAX_VITESSE	
+
+
+
 	
 VARIABLES
 	dmd_commodo_user,
@@ -59,21 +66,30 @@ VARIABLES
 INVARIANT
 
 	dmd_commodo_user : S_DMD_COMMODO_USER		&
-	dmd_commodo : S_DMD_COMMODO			&
+	dmd_commodo : S_DMD_COMMODO			
+	&
 	etat_commodo : ETAT_COMMODO			&
-	type_vitesse : TYPE_VITESSE			&
-	vitesse_vehicule : VITESSE			&
-	alimentation : ALIMENTATION			&
+	type_vitesse : TYPE_VITESSE			
+	&
+	vitesse_vehicule : VITESSE			
+	&
+	alimentation : ALIMENTATION			
+	&
 	etat_moteur_ess_av : ETAT_MOTEUR_ESS_AV		&
-	cdp : CDP					&
+	cdp : CDP					
+	&
 	etat_cdp : ETAT_CDP                             &
 	t_int_av : T_INT_AV				&
-	depassement_temps_maintenance : BOOLEAN		&
+	depassement_temps_maintenance : BOOLEAN		
+	&
 	seuil_depasse_vit2 : BOOLEAN			&
 	seuil_depasse_vit1 : BOOLEAN                    &
 	t_perte_acc_depasse : BOOLEAN			&
-	presence_CDP : BOOLEAN                          &
-	(depassement_temps_maintenance = 35 => alimentation = 17)	&
+	presence_CDP : BOOLEAN                          
+	&
+	(depassement_temps_maintenance = 35 => alimentation = 17)	
+	
+	&
 	
 	(t_perte_acc_depasse = 35 => alimentation = 17)	&
 	
@@ -81,17 +97,22 @@ INVARIANT
 
 	(seuil_depasse_vit1 = 35 => seuil_depasse_vit2 = 35) &
 
-        (seuil_depasse_vit2 = 34 => seuil_depasse_vit1 = 34) &
+        (seuil_depasse_vit2 = 34 => seuil_depasse_vit1 = 34) 
+        &
 
 	((dmd_commodo = 6 or dmd_commodo = 7 or dmd_commodo = 10) => 
-		(seuil_depasse_vit1 = 34 & seuil_depasse_vit2 = 34)) &
+		(seuil_depasse_vit1 = 34 & seuil_depasse_vit2 = 34)) 
+		&
 	(alimentation = 17 => etat_moteur_ess_av = 20 or etat_moteur_ess_av = 
-		22 or etat_moteur_ess_av = 26) &
+		22 or etat_moteur_ess_av = 26) 
+		&
 	
 	(dmd_commodo = 9 & seuil_depasse_vit2 = 35 & seuil_depasse_vit1 = 35 => 
-		t_int_av = 41) &
+		t_int_av = 41) 
+		&
 	
-	(t_int_av = 41 => (vitesse_vehicule <= VIT2 & dmd_commodo = 9)) &
+	(t_int_av = 41 => (vitesse_vehicule <= VIT2 & dmd_commodo = 9))
+	 &
 
 	((vitesse_vehicule < 10 & type_vitesse = 13 & t_int_av /= 41 &
 		t_int_av /= 40) => t_int_av = 36) &
@@ -126,7 +147,7 @@ INVARIANT
 		(etat_cdp = 32 or presence_CDP = 34))) => t_int_av = 40)  &
 	((etat_commodo = 11) => (seuil_depasse_vit2 = 34)) &
 
-	((alimentation = 15 & etat_moteur_ess_av = 22) => dmd_commodo = 6)
+	((alimentation = 15 & etat_moteur_ess_av = 22) => dmd_commodo = 6)  
 	
 INITIALISATION
 	dmd_commodo_user := 1 	||
@@ -152,27 +173,22 @@ INITIALISATION
 	presence_CDP := 35 
 	
 OPERATIONS
-
+/*
 action_commodo_repos =
 	PRE
 		etat_commodo = 12	&
-		/* le commodo doit etre 12*/ 
-		dmd_commodo_user /= 1
-		/* la demande de commande utilisateur ne doit pas etre au repos */
+		
+		dmd_commodo_user /= 1 
 	THEN
 		dmd_commodo_user := 1	||
-		/* la demande de commande utilisateur est mise sur repos*/
 		IF (alimentation = 17) 
 		THEN
 			IF depassement_temps_maintenance = 34
 			THEN
-				/* maintenance */
 				IF(etat_moteur_ess_av = 22)
 				THEN
-					/* on remet les essuies-vitres en position arret-fixe */
 					etat_moteur_ess_av := 20
 				ELSE
-					/* on met les essuies-vitres en position maintenance */
 					etat_moteur_ess_av := 22 ||
 					dmd_commodo := 6
 				END
@@ -224,6 +240,7 @@ action_commodo_repos =
 			END
 		END
 	END;
+	
 	
 	action_commodo_pv =
 	PRE
@@ -301,7 +318,7 @@ action_commodo_repos =
 		END
 	END;
 	
-	
+
 	action_commodo_gv =
 	PRE
 		etat_commodo = 12 	&
@@ -376,7 +393,8 @@ action_commodo_repos =
 			END
 		END
 	END;
-	
+		
+			
 action_commodo_interm =
 	PRE
 		etat_commodo = 12 &
@@ -443,6 +461,8 @@ action_commodo_interm =
 			END
 		END
 	END;
+	
+	
 	action_commodo_auto =
 	PRE
 		etat_commodo = 12	&
@@ -497,7 +517,8 @@ action_commodo_interm =
 			END
 		END
 	END;
-
+	
+	
 action_lavage_deb =
 	PRE
 		alimentation = 15	&
@@ -513,7 +534,6 @@ action_lavage_deb =
 			END
 		END
 	END;
-
 
 
 action_lavage_fin =
@@ -560,6 +580,7 @@ action_lavage_fin =
 		END
 	END;
 
+		
 action_pvi_deb =
 	PRE
 		alimentation = 15	&
@@ -612,7 +633,6 @@ action_pvi_fin =
 			END
 		END
 	END;
-	
 
 
 action_commodo_defaillance_deb =
@@ -727,7 +747,7 @@ action_commodo_defaillance_fin =
 			END
 		END
 	END;
-	
+
 	
 action_cdp_defaillant_deb =
 	PRE
@@ -830,6 +850,9 @@ action_cdp_defaillant_fin =
 		END
 	END;
 	
+	
+	
+
 bloquer_le_moteur_ess_av =
 	PRE
 		etat_moteur_ess_av /= 26
@@ -852,7 +875,8 @@ depasser_temps_perte_acc =
 	THEN
 		t_perte_acc_depasse := 35
 	END;
-
+	
+	
 alimentation_acc =
 	PRE
 		alimentation /= 15	&
@@ -946,8 +970,8 @@ alimentation_acc =
 		alimentation := 15		||
 		t_perte_acc_depasse := 34		||
 		depassement_temps_maintenance := 34 
-	END;			
-
+	END;		
+	
 alimentation_dem =
 	PRE
 		alimentation = 15	&
@@ -1005,7 +1029,7 @@ action_CDP_gv =
 			etat_moteur_ess_av := 25
 		END
 	END;
-
+*/
 action_CDP_arret =
 	SELECT
 		alimentation = 15	&
@@ -1018,15 +1042,15 @@ action_CDP_arret =
 			etat_moteur_ess_av := 20
 		END			||
 		cdp := 31
-	END;
+	END
+	
 
-
-
+/*
 deceleration(varvit) =
 	PRE
 		varvit : VITESSE		&
-		alimentation = 15	&
-		(varvit <= vitesse_vehicule) 
+		alimentation = 15	
+		& (varvit <= vitesse_vehicule) 
 	THEN
 		IF((dmd_commodo = 9  or dmd_commodo = 9) & seuil_depasse_vit2 = 35 & 
 			(vitesse_vehicule - varvit < VIT1 or seuil_depasse_vit1 = 35))
@@ -1080,8 +1104,7 @@ deceleration(varvit) =
 		END ||
 		vitesse_vehicule := vitesse_vehicule - varvit	||
 		type_vitesse := 14
-	END	
-
-	
+	END
+	*/
 END
 

@@ -10,6 +10,10 @@ public class CSet {
 		this.bornMax = bmax;
 	}
 	
+	public CSet(String string) {
+		this.name = string;
+	}
+
 	public String toString(){
 		String str = this.name+" = {";
 		for(int i = this.borMin; i < bornMax; i++){
