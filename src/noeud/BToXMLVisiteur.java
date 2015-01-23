@@ -95,6 +95,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("Or")){
 			return this.visitOr(node);
 		}
+		else if(nodeName.equals("CallFunction")){
+			return this.visitCallFunction(node);
+		}
 
 		//visit des neud evenements
 		else if(nodeName.equals("Parallel")){
@@ -102,6 +105,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		}
 		else if(nodeName.equals("SubstitutionBecomeEqualVariables")){
 			return this.visitAssignment(node);
+		}
+		else if(nodeName.equals("SubstitutionBecomeEqualFunction")){
+			return this.visitFunctionAssignment(node);
 		}
 		else if(nodeName.equals("Operations")){
 			return this.visitOperations(node);
@@ -130,6 +136,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("Implication")){
 			return this.visitImplication(node);
 		}
+		else if(nodeName.equals("Equivalence")){
+			return this.visitEquivalence(node);
+		}
 		
 		//visit des neoeuds arithmetique 
 		else if(nodeName.equals("Plus")){
@@ -143,6 +152,33 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		}
 		return null;
 	}
+
+
+
+	private Object visitFunctionAssignment(Noeud node) {
+		Element cAssign = new Element("CAssignment");
+		cAssign.addContent((Element)node.getChild(0).accept(this));
+		cAssign.addContent((Element)node.getChild(1).accept(this));
+		return cAssign;
+	}
+
+
+
+	private Object visitCallFunction(Noeud node) {
+		Element cVar = new Element("CVariable");
+		String funcName = node.getChild(0).getChild(0).getNodeValue();
+		if(node.getChild(1).getNodeName().equals("Integer")){
+			funcName += node.getChild(1).getNodeValue();
+		}
+		else{
+			funcName += node.getChild(1).getChild(0).getNodeValue();
+		}
+		cVar.setAttribute("val",funcName);
+		return cVar;
+	}
+
+
+
 
 
 
@@ -167,6 +203,26 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		cOr.addContent(cNot);
 		cOr.addContent((Element)node.getChild(1).accept(this));
 		return cOr;
+	}
+	
+
+	private Object visitEquivalence(Noeud node) {
+		Element cAnd = new Element("CAnd");
+		Element cOr = new Element("COr");
+		Element cNot = new Element("CNot");
+		cNot.addContent((Element)node.getChild(0).accept(this));
+		cOr.addContent(cNot);
+		cOr.addContent((Element)node.getChild(1).accept(this));
+		
+		Element cOr1 = new Element("COr");
+		Element cNot1 = new Element("CNot");
+		cNot1.addContent((Element)node.getChild(1).accept(this));
+		cOr1.addContent(cNot1);
+		cOr1.addContent((Element)node.getChild(0).accept(this));
+		
+		cAnd.addContent(cOr);
+		cAnd.addContent(cOr1);
+		return cAnd;
 	}
 
 
@@ -217,7 +273,7 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		cG.addContent((Element)node.getChild(1).accept(this));
 		
 		Element cm = new Element("CMinus");
-		cm.addContent((Element)node.getChild(1).accept(this));
+		cm.addContent((Element)node.getChild(0).accept(this));
 		Element cN = new Element("CNumber");
 		cN.setAttribute("val","1");
 		cm.addContent(cN);
@@ -420,11 +476,11 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			Collection<Element> cl = new ArrayList<Element>();
 			Element g1 = new Element("CGreater");
 			Element g2 = new Element("CGreater");
+			Element cAnd = new Element("CAnd");
 			
 			g1.addContent((Element)node.getChild(0).accept(this));
 			if(n.getChild(0).getNodeName().equals("IdentifierComposed")){
 				if(listConst.containsKey(n.getChild(0).getChild(0).getNodeValue())){
-					//System.out.println(n.getChild(0).getChild(0).getNodeValue());
 					Element e = new Element("CNumber");
 					e.setAttribute("val",""+(listConst.get(n.getChild(0).getChild(0).getNodeValue())).getValue());
 					g1.addContent(e);
@@ -433,8 +489,8 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			else{
 				g1.addContent((Element)n.getChild(0).accept(this));
 			}
-			cl.add(g1);
-			
+			//cl.add(g1);
+			cAnd.addContent(g1);
 			if(n.getChild(n.getNumChildren()-1).getNodeName().equals("IdentifierComposed")){
 				if(listConst.containsKey(n.getChild(n.getNumChildren()-1).getChild(0).getNodeValue())){
 					
@@ -448,8 +504,10 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			}
 			//g2.addContent((Element)n.getChild(n.getNumChildren()-1).accept(this));
 			g2.addContent((Element)node.getChild(0).accept(this));
-			cl.add(g2);
-			return cl;
+			//cl.add(g2);
+			cAnd.addContent(g2);
+			//return cl;
+			return cAnd;
 		}
 		else if(n.getNodeName().equals("Minus")){
 			CSet cset = listSets.get(node.getChild(1).getChild(0).getNodeValue());
@@ -514,6 +572,266 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			}
 			return cOr;			
 		}
+		else if(n.getNodeName().equals("TotalFunction")){ 
+			// cas des fonction avec des domaine et ensemble d'arrivée (images) F: DOM --> IMG
+			Element cG1 = null;
+			Element cG2 = null;
+			Element cBmin = null;
+			Element cBmax = null;
+			String varName = node.getChild(0).getChild(0).getNodeValue();
+			Collection<Element> cl = new ArrayList<Element>();
+			
+			Element cVar = new Element("CVariable");
+			
+			if(n.getChild(0).getNodeName().equals("NatRange")){ //domaine sous forme 1..3
+				for(int i = Integer.parseInt(n.getChild(0).getChild(0).getNodeValue()); 
+						 i<=Integer.parseInt(n.getChild(0).getChild(1).getNodeValue());i++){
+					Element cIn = new Element("CInDomain");
+					cIn.setAttribute("type","0");
+					cVar.setAttribute("val",varName+""+i);
+					cIn.addContent(cVar.clone());
+					cl.add(cIn.clone());
+				}
+			}
+			else if(n.getChild(0).getNodeName().equals("IdentifierComposed")){ //domaine sous forme nom d'un SET
+				if(listSets.containsKey(n.getChild(0).getChild(0).getNodeValue())){
+					CSet cset = listSets.get(n.getChild(0).getChild(0).getNodeValue());
+					for(int i = cset.getBorMin(); i<=cset.getBornMax();i++){
+						Element cIn = new Element("CInDomain");
+						cIn.setAttribute("type","0");
+						cVar.setAttribute("val",varName+""+i);
+						cIn.addContent(cVar.clone());
+						cl.add(cIn.clone());
+					}
+				}
+			}
+			else if(n.getChild(0).getNodeName().equals("ExtensionSet")){//domaine sous forme {1,2,3}
+				for(int i = 0; i< n.getChild(0).getChild(0).getNumChildren(); i++){
+					Element cIn = new Element("CInDomain");
+					cIn.setAttribute("type","0");
+					cVar.setAttribute("val",varName+""+n.getChild(0).getChild(0).getChild(i).getNodeValue());
+					cIn.addContent(cVar.clone());
+					cl.add(cIn.clone());
+				}
+			}
+			// Traitement de l'ensemble des images 
+			if(n.getChild(1).getNodeName().equals("NatRange")){ //IMG sous forme 1..3
+			
+				if(n.getChild(0).getNodeName().equals("IdentifierComposed")){
+					if(listSets.containsKey(n.getChild(0).getChild(0).getNodeValue())){
+						CSet cset = listSets.get(n.getChild(0).getChild(0).getNodeValue());
+						for(int i = cset.getBorMin(); i<=cset.getBornMax();i++){
+							cG1 = new Element("CGreater");
+							cG2 = new Element("CGreater");
+							cBmin = new Element("CNumber");
+							cBmax = new Element("CNumber");
+							
+							cBmin.setAttribute("val",cset.getBorMin()+"");
+							cBmax.setAttribute("val",cset.getBornMax()+"");
+							cVar.setAttribute("val",varName+""+i);
+							
+							cG1.addContent(cVar.clone());
+							cG1.addContent(cBmin.clone());
+							
+							cG2.addContent(cBmax.clone());
+							cG2.addContent(cVar.clone());
+							
+							cl.add(cG1.clone());
+							cl.add(cG2.clone());
+						}
+					}
+				}
+				if(n.getChild(0).getNodeName().equals("NatRange")){
+					for(int i = Integer.parseInt(n.getChild(0).getChild(0).getNodeValue()); 
+							 i<=Integer.parseInt(n.getChild(0).getChild(1).getNodeValue());i++){
+						cG1 = new Element("CGreater");
+						cG2 = new Element("CGreater");
+						cBmin = new Element("CNumber");
+						cBmax = new Element("CNumber");
+						
+						cBmin.setAttribute("val",n.getChild(1).getChild(0).getNodeValue());
+						cBmax.setAttribute("val",n.getChild(1).getChild(1).getNodeValue());
+						cVar.setAttribute("val",varName+""+i);
+						
+						cG1.addContent(cVar.clone());
+						cG1.addContent(cBmin.clone());
+						
+						cG2.addContent(cBmax.clone());
+						cG2.addContent(cVar.clone());
+						
+						cl.add(cG1.clone());
+						cl.add(cG2.clone());
+					}
+				}
+				if(n.getChild(0).getNodeName().equals("ExtensionSet")){
+					for(int i = 0; i< n.getChild(0).getChild(0).getNumChildren(); i++){
+						cG1 = new Element("CGreater");
+						cG2 = new Element("CGreater");
+						cBmin = new Element("CNumber");
+						cBmax = new Element("CNumber");
+						
+						cBmin.setAttribute("val",n.getChild(1).getChild(0).getNodeValue());
+						cBmax.setAttribute("val",n.getChild(1).getChild(1).getNodeValue());
+						cVar.setAttribute("val",varName+""+n.getChild(0).getChild(0).getChild(i).getNodeValue());
+						
+						cG1.addContent(cVar.clone());
+						cG1.addContent(cBmin.clone());
+						
+						cG2.addContent(cBmax.clone());
+						cG2.addContent(cVar.clone());
+						
+						cl.add(cG1.clone());
+						cl.add(cG2.clone());
+					}
+				}
+			}
+			else if(n.getChild(1).getNodeName().equals("IdentifierComposed")){ //IMG sous forme nom d'un SET
+				
+				if(listSets.containsKey(n.getChild(1).getChild(0).getNodeValue())){					
+					CSet cset = listSets.get(n.getChild(1).getChild(0).getNodeValue());
+					if(n.getChild(0).getNodeName().equals("ExtensionSet")){
+						for(int i = 0; i< n.getChild(0).getChild(0).getNumChildren(); i++){
+							cG1 = new Element("CGreater");
+							cG2 = new Element("CGreater");
+							cBmin = new Element("CNumber");
+							cBmax = new Element("CNumber");
+							
+							cBmin.setAttribute("val",cset.getBorMin()+"");
+							cBmax.setAttribute("val",cset.getBornMax()+"");
+							cVar.setAttribute("val",varName+""+n.getChild(0).getChild(0).getChild(i).getNodeValue());
+							
+							cG1.addContent(cVar.clone());
+							cG1.addContent(cBmin.clone());
+							
+							cG2.addContent(cBmax.clone());
+							cG2.addContent(cVar.clone());
+							
+							cl.add(cG1.clone());
+							cl.add(cG2.clone());
+						}
+					}
+					if(n.getChild(0).getNodeName().equals("NatRange")){
+						for(int i = Integer.parseInt(n.getChild(0).getChild(0).getNodeValue()); 
+								 i<=Integer.parseInt(n.getChild(0).getChild(1).getNodeValue());i++){
+								
+							cG1 = new Element("CGreater");
+							cG2 = new Element("CGreater");
+							cBmin = new Element("CNumber");
+							cBmax = new Element("CNumber");
+							
+							cBmin.setAttribute("val",cset.getBorMin()+"");
+							cBmax = new Element("CNumber");
+							cBmax.setAttribute("val",cset.getBornMax()+"");
+							cVar.setAttribute("val",varName+""+i);
+								
+							cG1.addContent(cVar.clone());
+							cG1.addContent(cBmin.clone());
+								
+							cG2.addContent(cBmax.clone());
+							cG2.addContent(cVar.clone());
+								
+							cl.add(cG1.clone());
+							cl.add(cG2.clone());
+						}
+					}
+					if(n.getChild(0).getNodeName().equals("IdentifierComposed")){
+						if(listSets.containsKey(n.getChild(0).getChild(0).getNodeValue())){
+							CSet csetDomaine = listSets.get(n.getChild(0).getChild(0).getNodeValue());
+							for(int i = csetDomaine.getBorMin(); i<=csetDomaine.getBornMax();i++){
+								cG1 = new Element("CGreater");
+								cG2 = new Element("CGreater");
+								cBmin = new Element("CNumber");
+								cBmax = new Element("CNumber");
+								
+								cBmin.setAttribute("val",cset.getBorMin()+"");
+								cBmax.setAttribute("val",cset.getBornMax()+"");
+								cVar.setAttribute("val",varName+""+i);
+								
+								cG1.addContent(cVar.clone());
+								cG1.addContent(cBmin.clone());
+								
+								cG2.addContent(cBmax.clone());
+								cG2.addContent(cVar.clone());
+								
+								cl.add(cG1.clone());
+								cl.add(cG2.clone());
+							}
+						}
+					}
+				}
+				
+			}
+			else if(n.getChild(1).getNodeName().equals("ExtensionSet")){//IMG sous forme {1,2,3}
+				if(n.getChild(0).getNodeName().equals("IdentifierComposed")){
+					if(listSets.containsKey(n.getChild(0).getChild(0).getNodeValue())){
+						CSet csetDomaine = listSets.get(n.getChild(0).getChild(0).getNodeValue());
+						for(int i = csetDomaine.getBorMin(); i<=csetDomaine.getBornMax();i++){
+							cG1 = new Element("CGreater");
+							cG2 = new Element("CGreater");
+							cBmin = new Element("CNumber");
+							cBmax = new Element("CNumber");
+							
+							cBmin.setAttribute("val",n.getChild(1).getChild(0).getChild(0).getNodeValue());
+							cBmax.setAttribute("val",n.getChild(1).getChild(0).getChild(1).getNodeValue());
+							cVar.setAttribute("val",varName+""+i);
+							
+							cG1.addContent(cVar.clone());
+							cG1.addContent(cBmin.clone());
+							
+							cG2.addContent(cBmax.clone());
+							cG2.addContent(cVar.clone());
+							
+							cl.add(cG1.clone());
+							cl.add(cG2.clone());
+						}
+					}
+				}
+				if(n.getChild(0).getNodeName().equals("NatRange")){
+					for(int i = 0;i<=n.getChild(0).getNumChildren();i++){
+						cG1 = new Element("CGreater");
+						cG2 = new Element("CGreater");
+						cBmin = new Element("CNumber");
+						cBmax = new Element("CNumber");
+						
+						cBmin.setAttribute("val",n.getChild(1).getChild(0).getChild(0).getNodeValue());
+						cBmax = new Element("CNumber");
+						cBmax.setAttribute("val",n.getChild(1).getChild(0).getChild(1).getNodeValue());
+						cVar.setAttribute("val",varName+""+n.getChild(0).getChild(i).getNodeValue());
+						
+						cG1.addContent(cVar.clone());
+						cG1.addContent(cBmin.clone());
+						
+						cG2.addContent(cBmax.clone());
+						cG2.addContent(cVar.clone());
+						
+						cl.add(cG1.clone());
+						cl.add(cG2.clone());
+					}
+				}
+				if(n.getChild(0).getNodeName().equals("ExtensionSet")){
+					for(int i = 0; i< n.getChild(0).getChild(0).getNumChildren(); i++){
+						cG1 = new Element("CGreater");
+						cG2 = new Element("CGreater");
+						cBmin = new Element("CNumber");
+						cBmax = new Element("CNumber");
+						
+						cBmin.setAttribute("val",n.getChild(1).getChild(0).getChild(0).getNodeValue());
+						cBmax.setAttribute("val",n.getChild(1).getChild(0).getChild(1).getNodeValue());
+						cVar.setAttribute("val",varName+""+n.getChild(0).getChild(0).getChild(i).getNodeValue());
+						
+						cG1.addContent(cVar.clone());
+						cG1.addContent(cBmin.clone());
+						
+						cG2.addContent(cBmax.clone());
+						cG2.addContent(cVar.clone());
+						
+						cl.add(cG1.clone());
+						cl.add(cG2.clone());
+					}
+				}
+			}
+			return cl;
+		}
 		else if(!listSets.isEmpty()){
 			
 			Collection<Element> cl = new ArrayList<Element>();
@@ -551,7 +869,6 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	@Override
 	public Object visitEqual(Noeud node) {
 		Element cCEquals = new Element("CEquals");
-		//System.out.println(node.getChild(0).getNodeName());
 		cCEquals.addContent((Element) node.getChild(0).accept(this));
 		cCEquals.addContent((Element)node.getChild(1).accept(this));
 		return cCEquals;
@@ -560,7 +877,6 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	@Override
 	public Object visitGreatherThan(Noeud node) {
 		Element cCEquals = new Element("CGreater");
-		//System.out.println(node.getChild(0).getNodeName());
 		cCEquals.addContent((Element) node.getChild(0).accept(this));
 		cCEquals.addContent((Element)node.getChild(1).accept(this));
 		return cCEquals;
@@ -575,14 +891,7 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 					cParallel.addContent((Element)node.getChild(i).getChild(j).accept(this));
 			}
 			else{
-				
-				
-				/*if(!node.getChild(i).getNodeName().equals("SubstitutionAny"))
-				{*/
-					//System.out.println(node.getChild(i).getNodeName());
-				
 				cParallel.addContent((Element)node.getChild(i).accept(this));
-				//}
 			}
 		}
 		return cParallel;
@@ -622,11 +931,12 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 
 
 	private Object visitOperation(Noeud node) {
+		String param = "";
 		Element cOperation = null;
-		if(node.getChild(0) == null){
+		if(node.getChild(0) == null  || !node.getChild(0).getNodeName().equals("Header")){
 			throw new NullPointerException("Header required !");
 		}
-
+		
 		//System.out.println(node.getChild(node.getNumChildren()-1).getNodeName());
 		if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionSelect") ||
 				node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionPrecondition")){
@@ -638,12 +948,18 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(node.getChild(node.getNumChildren()-1).getNodeName().equals("SubstitutionAny")){
 			cOperation = new Element("CAnyEvent");
 		}
-		cOperation.setAttribute("name", node.getChild(0).getChild(0).getChild(0).getNodeValue());
+		if(node.getChild(0).getNodeName().equals("Header") && node.getChild(0).getNumChildren() > 1){
+			if(node.getChild(1).getNodeName().equals("Parameters")){
+				param = "("+node.getChild(1).getChild(0).getChild(0).getNodeValue()+")";
+			}
+		}
+		cOperation.setAttribute("name", node.getChild(0).getChild(0).getChild(0).getNodeValue()+param);
 		for(int i=0;i<node.getChild(1).getNumChildren();i++){
 			//if(!node.getChild(1).getChild(i).getNodeName().equals("Then"))
 			cOperation.addContent((Element)node.getChild(1).getChild(i).accept(this));
 			//System.out.println(node.getChild(1).getChild(i).getNodeName());
 		}
+		
 		return cOperation;
 	}
 
@@ -768,7 +1084,7 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 
 	@Override
 	public Object visitExists(Noeud node) {
-		// TODO Auto-generated method stub
+		
 		return null;
 	}
 
@@ -776,11 +1092,7 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 }
 
 
-/* Trouver ou se trouve le traitement des entier naturel dans hadara
-pretraiter les ensembles enumerée (avec python) remplecer ETATS = {libre, occupe} par ETATS = {1,2}
-revoir la grammaire pour qu'elle accepte plusieurs declaton de Sets
-Revoir le visiteur sur ListExpression
-
-FAIRE LA 2eme partie des set et NatRange c.a.d a > 0 & 3 > a
-Idées pour les sets: conserver les declarations avec les identifiants comme literaux et faire correspondre des numero lors de la visite des noeuds
+/* Faire les combinaison pour les domaine de fonctions 1..2 ---> ES traité mais pas
+ * {1,2,3} --> EF, ED-->EA
  */
+ 

@@ -64,7 +64,7 @@ VARIABLES
 	presence_CDP
 
 INVARIANT
-
+	
 	dmd_commodo_user : S_DMD_COMMODO_USER		&
 	dmd_commodo : S_DMD_COMMODO			
 	&
@@ -150,6 +150,7 @@ INVARIANT
 	((alimentation = 15 & etat_moteur_ess_av = 22) => dmd_commodo = 6)  
 	
 INITIALISATION
+
 	dmd_commodo_user := 1 	||
 
 	dmd_commodo := 6		||
@@ -173,7 +174,7 @@ INITIALISATION
 	presence_CDP := 35 
 	
 OPERATIONS
-/*
+
 action_commodo_repos =
 	PRE
 		etat_commodo = 12	&
@@ -1029,7 +1030,7 @@ action_CDP_gv =
 			etat_moteur_ess_av := 25
 		END
 	END;
-*/
+
 action_CDP_arret =
 	SELECT
 		alimentation = 15	&
@@ -1043,7 +1044,6 @@ action_CDP_arret =
 		END			||
 		cdp := 31
 	END
-	
 
 /*
 deceleration(varvit) =

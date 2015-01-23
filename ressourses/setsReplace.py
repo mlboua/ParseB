@@ -33,7 +33,7 @@ def findSetsDecl(text):
 
 #-----------------------------------------------------------------------
 txt = ''
-with open('ESSUYAGE_AV.mch','r') as myFile:
+with open('SysAlim.mch','r') as myFile:
     txt = myFile.read()
  
 ptxt = findSetsDecl(txt)
@@ -42,5 +42,5 @@ for key,val in ptxt.items():
     #print("{},{}".format(e,v))
 #print(txt)
 
-with open('ESSUYAGE_AV1.mch','w') as outFile:
+with open('SysAlim1.mch','w') as outFile:
     outFile.write(txt)

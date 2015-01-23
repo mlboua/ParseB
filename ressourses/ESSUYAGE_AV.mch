@@ -8,7 +8,7 @@ CONSTANTS
 	MAX_VITESSE
 
 SETS
-	S_DMD_COMMODO_USER = {repos1, interm1, 1pv1, gv1, auto1}; 
+	S_DMD_COMMODO_USER = {repos1, interm1, 1pv1, gv1, auto1}; repositorie
 	
 	S_DMD_COMMODO = {d_repos1, d_interm1, d_pv1, d_pv1, d_auto1}; 
 	
