@@ -18,7 +18,7 @@ public class MainClass {
 		BToXMLVisiteur visitor = new BToXMLVisiteur();
 		XMLOutputter xmlOutput = new XMLOutputter();
 		try {
-			Noeud bComponent  = BParser.analyse (new File("./SysAlim.mch"));
+			Noeud bComponent  = BParser.analyse (new File("ressources/ESSUYAGE_AV.mch"));
 			BParser.writeXMLFileAfterParsing((Noeud)bComponent, "robot.xml");
 			Element xMachine = null;
 			try {
@@ -26,13 +26,12 @@ public class MainClass {
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
+			
 			Document doc = new Document(xMachine);
 
 
 			xmlOutput.setFormat(Format.getPrettyFormat());
 			xmlOutput.output(doc, new FileWriter("file.ebm"));
-			//xMachine.toString();
-			//System.out.println(xMachine.toString());
 		} catch (BParserException | AfterParserException | IOException e) {
 			e.printStackTrace();
 		}

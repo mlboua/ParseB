@@ -387,6 +387,7 @@ TOKEN : {
 |  	<Invariant : "INVARIANT">
 |  	<Variables : "VARIABLES">
 |  	<Operations : "OPERATIONS">
+| 	<Events : "EVENTS">
 |	<Constraints : "CONSTRAINTS">
 |	<Sees : "SEES">
 |	<Constants : "CONSTANTS">
