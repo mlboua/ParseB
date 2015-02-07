@@ -137,6 +137,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 		else if(nodeName.equals("PredicateParenthesis")){
 			return this.visitPredicateParenthesis(node);
 		}
+		else if(nodeName.equals("ExpressionParenthesis")){
+			return this.visitExpressionParenthesis(node);
+		}
 		else if(nodeName.equals("Implication")){
 			return this.visitImplication(node);
 		}
@@ -155,6 +158,12 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 			return this.visitMult(node);
 		}
 		return null;
+	}
+
+
+
+	private Object visitExpressionParenthesis(Noeud node) {
+		return (node.getChild(0).accept(this));
 	}
 
 
@@ -278,6 +287,9 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	}
 
 	private Object visitLessThan(Noeud node) {
+		/*System.out.println("LESSTHAN");
+		System.out.println(node.getChild(1).getNodeName());
+		System.out.println(node.getChild(0).getNodeName());*/
 		Element cG = new Element("CGreater");
 		cG.addContent((Element)node.getChild(1).accept(this));
 		cG.addContent((Element)node.getChild(0).accept(this));
@@ -956,9 +968,6 @@ public class BToXMLVisiteur implements IArithmeticVisitor, IBooleanVisitor, IEve
 	@Override
 	@SuppressWarnings("unchecked")
 	public Object visitAny(Noeud node) {
-		if(node.getChild(1).getNodeName().equals("In")){
-			
-		}
 		Element cAny = new Element("CAny");
 		for(int i=0;i<node.getNumChildren();i++){
 			Object elt = node.getChild(i).accept(this);
